@@ -2,7 +2,7 @@
 
 Тренажёр вождения для автошкол. Имитирует реальные маршруты и городские парковки, оценивает ошибки ученика и показывает результат.
 
-Репозиторий: [https://github.com/FroloveD/CytyDrivingTraining](https://github.com/FroloveD/CytyDrivingTraining) (на момент создания пустой)
+Репозиторий: [https://github.com/FroloveD/CytyDrivingTraining](https://github.com/FroloveD/CytyDrivingTraining)
 
 > Этот файл ведём как живую памятку. Каждое значимое решение, изменение структуры или смену этапа записываем в разделы ниже и в журнал изменений внизу.
 
