@@ -1306,9 +1306,9 @@ function refreshStatus(bay) {
   if (!engineRunning) text = 'Двигатель выключен. Нажмите I для запуска.';
   else if (handbrakeActive) text = 'Стояночный тормоз активен. Снимите с ручника (Space).';
   else if (!beltFastened) text = 'Внимание! Пристегните ремень (клавиша B).';
-  else if (finished) text = `Парковка в боксе №${finishedBay.id} выполнена! Балл: ${score}`;
-  else if (contact) text = 'Касание! Отъедьте назад';
-  else if (bay && holdT > 0) text = `Бокс №${bay.id}: держите остановку...`;
+  else if (finished && bay === finishedBay && Math.abs(state.v) < 0.05) text = `Парковка в боксе №${finishedBay.id} выполнена! Балл: ${score} — можно выезжать`;
+  else if (contact) text = 'Касание! Отъездьте назад';
+  else if (bay && holdT > 0 && !finished) text = `Бокс №${bay.id}: держите остановку...`;
   else if (bay) text = `Бокс №${bay.id} — остановитесь`;
   else text = 'Заезжайте задним ходом в свободный бокс';
   if (text !== lastStatusText) { statusEl.textContent = text; lastStatusText = text; }
@@ -1384,11 +1384,10 @@ let frameNo = 0;
 function loop(now) {
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
-  if (!finished) {
-    // при высокой скорости делим шаг, чтобы машина не проскакивала тонкие бордюры
-    const steps = Math.min(20, Math.max(1, Math.ceil(Math.abs(state.v) * dt / 0.1)));
-    for (let i = 0; i < steps; i++) update(dt / steps);
-  }
+  // при высокой скорости делим шаг, чтобы машина не проскакивала тонкие бордюры;
+  // физика не останавливается после зачёта упражнения — можно выехать и продолжить
+  const steps = Math.min(20, Math.max(1, Math.ceil(Math.abs(state.v) * dt / 0.1)));
+  for (let i = 0; i < steps; i++) update(dt / steps);
   updateRpm(dt);
   syncCar(now);
   updateCamera(0.12);
