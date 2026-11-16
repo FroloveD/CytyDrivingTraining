@@ -1709,6 +1709,7 @@ function refreshStatus(bay) {
     const hold = pt.stop && exam.dist < pt.r;
     text = (exam.flash > 0 ? '✓ ' : '') + `Маршрут ${exam.ri + 1}: точка ${exam.idx + 1}/${EXAM_ROUTES[exam.ri].pts.length} — ${pt.name} (${Math.round(exam.dist)} м)` + (hold ? ' — стойте!' : '');
   }
+  else if (mapFinish && Math.abs(state.v) < 0.05 && Math.hypot(state.x - mapFinish.x, state.z - mapFinish.z) < 2.5) text = '🏁 Финиш достигнут!';
   else if (finished && bay === finishedBay && Math.abs(state.v) < 0.05) text = `Парковка в боксе №${finishedBay.id} выполнена! Балл: ${score} — можно выезжать`;
   else if (contact) text = 'Касание! Отъездьте назад';
   else if (bay && holdT > 0 && !finished) text = `Бокс №${bay.id}: держите остановку...`;
@@ -1718,6 +1719,37 @@ function refreshStatus(bay) {
 }
 
 let mapStart = null;   // переопределение точки старта из map.json
+let mapFinish = null;  // финиш из map.json (шашечная разметка)
+
+const finishGroup = new THREE.Group();
+scene.add(finishGroup);
+function rebuildFinishMarker() {
+  while (finishGroup.children.length) finishGroup.remove(finishGroup.children[0]);
+  if (!mapFinish) return;
+  const cnv = document.createElement('canvas');
+  cnv.width = cnv.height = 128;
+  const c2 = cnv.getContext('2d');
+  const n = 8, s = 128 / n;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    c2.fillStyle = (i + j) % 2 ? '#16181c' : '#f2f2f2';
+    c2.fillRect(i * s, j * s, s, s);
+  }
+  const tex = new THREE.CanvasTexture(cnv);
+  const pad = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.5, 3.5),
+    new THREE.MeshBasicMaterial({ map: tex })
+  );
+  pad.rotation.x = -Math.PI / 2;
+  pad.position.set(mapFinish.x, 0.02, mapFinish.z);
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 3, 8), mat(0xdddddd));
+  pole.position.set(mapFinish.x - 1.9, 1.5, mapFinish.z);
+  const flag = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.2, 0.8),
+    new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide })
+  );
+  flag.position.set(mapFinish.x - 2.5, 2.6, mapFinish.z);
+  finishGroup.add(pad, pole, flag);
+}
 
 function reset() {
   Object.assign(state, mapStart || START, { v: 0, steer: 0 });
@@ -1761,15 +1793,21 @@ document.getElementById('mapFile').addEventListener('change', e => {
         const ids = data.bays.filter(v => Number.isInteger(v) && v >= 1 && v <= 2 * COLS + PAR_COUNT);
         applyBays(ids);
       }
+      if (data.finish && isFinite(+data.finish.x) && isFinite(+data.finish.z)) {
+        const x = +data.finish.x, z = +data.finish.z;
+        mapFinish = { x: Math.max(-200, Math.min(200, x)), z: Math.max(-200, Math.min(200, z)) };
+      } else mapFinish = null;
+      rebuildFinishMarker();
       reset();
       try {
         localStorage.setItem(LS_MAP, JSON.stringify({
           start: mapStart,
           cones: cones.filter(c => !c.osm),
-          bays: bays.filter(b => b.occupied).map(b => b.id)
+          bays: bays.filter(b => b.occupied).map(b => b.id),
+          finish: mapFinish
         }));
       } catch (err) {}
-      alert('Карта загружена: конусов ' + cones.filter(c => !c.osm).length + ', боксов занято ' + bays.filter(b => b.occupied).length + (mapStart ? ', старт перемещён' : '') + ' (сохранена для следующих запусков)');
+      alert('Карта загружена: конусов ' + cones.filter(c => !c.osm).length + ', боксов занято ' + bays.filter(b => b.occupied).length + (mapStart ? ', старт перемещён' : '') + (mapFinish ? ', финиш задан' : '') + ' (сохранена для следующих запусков)');
     } catch (err) {
       alert('Ошибка загрузки карты: ' + err.message);
     }
@@ -1780,6 +1818,8 @@ document.getElementById('mapFile').addEventListener('change', e => {
 document.getElementById('mapReset').addEventListener('click', () => {
   try { localStorage.removeItem(LS_MAP); } catch (err) {}
   mapStart = null;
+  mapFinish = null;
+  rebuildFinishMarker();
   for (let i = cones.length - 1; i >= 0; i--) if (!cones[i].osm) cones.splice(i, 1);
   for (const c of BUILTIN_CONES) cones.push({ x: c.x, z: c.z });
   rebuildCones();
@@ -1806,6 +1846,11 @@ document.getElementById('mapReset').addEventListener('click', () => {
     if (Array.isArray(data.bays)) {
       applyBays(data.bays.filter(v => Number.isInteger(v) && v >= 1 && v <= 2 * COLS + PAR_COUNT));
     }
+    if (data.finish && isFinite(+data.finish.x) && isFinite(+data.finish.z)) {
+      const x = +data.finish.x, z = +data.finish.z;
+      mapFinish = { x: Math.max(-200, Math.min(200, x)), z: Math.max(-200, Math.min(200, z)) };
+    }
+    rebuildFinishMarker();
     reset();
   } catch (err) {}
 })();

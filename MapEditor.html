@@ -60,6 +60,7 @@
   <button type="button" id="toolRoute" class="tool" title="Добавить точку маршрута кликом (R)">📍 Точка</button>
   <button type="button" id="toolCone" class="tool" title="Добавить конус кликом (C)">▲ Конус</button>
   <button type="button" id="toolStart" class="tool" title="Поставить точку старта (S)">🚩 Старт</button>
+  <button type="button" id="toolFinish" class="tool" title="Поставить финиш (F), клик по финишу — убрать">🏁 Финиш</button>
   <span class="sep"></span>
   <button type="button" id="btnAddRoute">＋ Маршрут</button>
   <button type="button" id="btnDupRoute" title="Дублировать выбранный маршрут">⧉ Копия</button>
@@ -99,9 +100,10 @@
     Перетаскивание — двигать точку/конус/старт.<br>
     Клик по полю в режиме «✥ Выбор» — переключить занятость бокса.<br>
     Клик «📍 Точка» по линии маршрута — вставить точку между соседними.<br>
-    Клик «▲ Конус» по существующему конусу — удалить его.<br>
-    Колесо — масштаб, пустое место — панорама.<br>
-    Delete — удалить точку, Esc — снять выбор, стрелки — двигать точку (0,5 м).
+    Клик «▲ Конус» по существующему конусу — удалить его, по пустому месту — добавить.<br>
+    Клик «🏁 Финиш» — поставить финиш, повторный клик по финишу — убрать.<br>
+    Правый клик по точке/конусу — удалить. Колесо — масштаб, пустое место — панорама.<br>
+    Delete — удалить выбранное (точку или конус), Esc — снять выбор, стрелки — двигать точку (0,5 м).
   </div>
 </div>
 
@@ -162,6 +164,7 @@ const LS_KEY = 'cyty.mapeditor.v1';
 let map = JSON.parse(JSON.stringify(DEFAULT_MAP));
 let routes = JSON.parse(JSON.stringify(DEFAULT_ROUTES));
 let curRoute = 0, curPt = -1;
+let selCone = -1;
 let tool = 'select';
 
 try {
@@ -188,7 +191,7 @@ function restore(s) {
   const d = JSON.parse(s);
   map = d.map; routes = d.routes;
   curRoute = Math.min(curRoute, routes.length - 1);
-  curPt = -1;
+  curPt = -1; selCone = -1;
   saveLocal(); syncProps(); renderRouteList(); draw();
 }
 function undo() { if (!undoStack.length) return; redoStack.push(snapshot()); restore(undoStack.pop()); }
@@ -264,6 +267,7 @@ function draw() {
   drawBays();
   drawCones();
   drawStart();
+  drawFinish();
 
   routes.forEach((route, ri) => drawRoute(route, ri));
   drawCompass();
@@ -339,7 +343,7 @@ function drawBays() {
 }
 
 function drawCones() {
-  for (const c of map.cones) {
+  map.cones.forEach((c, ci) => {
     const sx = w2sX(c.x), sy = w2sY(c.z);
     const rr = Math.max(4, CONE_R * view.scale);
     ctx.fillStyle = '#ff7a1a';
@@ -349,7 +353,33 @@ function drawCones() {
     ctx.strokeStyle = '#b35410';
     ctx.lineWidth = 1.5;
     ctx.stroke();
+    if (ci === selCone) {
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(sx, sy, rr + 4, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  });
+}
+
+function drawFinish() {
+  if (!map.finish) return;
+  const f = map.finish;
+  const sx = w2sX(f.x), sy = w2sY(f.z);
+  const size = Math.max(12, 2.5 * view.scale);
+  const n = 4, cell = size / n;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    ctx.fillStyle = (i + j) % 2 ? '#16181c' : '#f2f2f2';
+    ctx.fillRect(sx - size / 2 + i * cell, sy - size / 2 + j * cell, cell + 0.5, cell + 0.5);
   }
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(sx - size / 2, sy - size / 2, size, size);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '700 11px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('ФИНИШ', sx, sy - size / 2 - 6);
 }
 
 function drawStart() {
@@ -604,9 +634,10 @@ const toolBtns = {
   select: document.getElementById('toolSelect'),
   route: document.getElementById('toolRoute'),
   cone: document.getElementById('toolCone'),
-  start: document.getElementById('toolStart')
+  start: document.getElementById('toolStart'),
+  finish: document.getElementById('toolFinish')
 };
-const toolNames = { select: 'Выбор', route: 'Точка маршрута', cone: 'Конус', start: 'Старт' };
+const toolNames = { select: 'Выбор', route: 'Точка маршрута', cone: 'Конус', start: 'Старт', finish: 'Финиш' };
 function setTool(t) {
   tool = t;
   for (const k in toolBtns) toolBtns[k].classList.toggle('active', k === t);
@@ -621,8 +652,17 @@ document.addEventListener('keydown', e => {
   else if (e.code === 'KeyR') setTool('route');
   else if (e.code === 'KeyC') setTool('cone');
   else if (e.code === 'KeyS') setTool('start');
-  else if (e.code === 'Escape') { curPt = -1; syncProps(); draw(); }
-  else if (e.code === 'Delete' || e.code === 'Backspace') deletePt();
+  else if (e.code === 'KeyF') setTool('finish');
+  else if (e.code === 'Escape') { curPt = -1; selCone = -1; syncProps(); draw(); }
+  else if (e.code === 'Delete' || e.code === 'Backspace') {
+    if (curPt >= 0) deletePt();
+    else if (selCone >= 0 && selCone < map.cones.length) {
+      pushUndo();
+      map.cones.splice(selCone, 1);
+      selCone = -1;
+      saveLocal(); draw();
+    }
+  }
   else if (e.code === 'Equal' || e.code === 'NumpadAdd') zoomAt(W / 2, H / 2, 1.2);
   else if (e.code === 'Minus' || e.code === 'NumpadSubtract') zoomAt(W / 2, H / 2, 1 / 1.2);
   else if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyZ' || e.code === 'KeyY')) {
@@ -647,6 +687,12 @@ let drag = null; // { kind, idx, route, pt, offX, offZ, panning, lastSX, lastSY,
 
 function hitTest(sx, sy) {
   const tol = 14;
+  if (tool === 'finish' && map.finish && Math.hypot(w2sX(map.finish.x) - sx, w2sY(map.finish.z) - sy) <= tol) return { kind: 'finish' };
+  if (tool === 'cone') {
+    for (let ci = map.cones.length - 1; ci >= 0; ci--) {
+      if (Math.hypot(w2sX(map.cones[ci].x) - sx, w2sY(map.cones[ci].z) - sy) <= tol) return { kind: 'cone', ci };
+    }
+  }
   for (let ri = 0; ri < routes.length; ri++) {
     const pts = routes[ri].pts;
     for (let pi = pts.length - 1; pi >= 0; pi--) {
@@ -658,6 +704,7 @@ function hitTest(sx, sy) {
     if (Math.hypot(w2sX(map.cones[ci].x) - sx, w2sY(map.cones[ci].z) - sy) <= tol) return { kind: 'cone', ci };
   }
   if (Math.hypot(w2sX(map.start.x) - sx, w2sY(map.start.z) - sy) <= tol) return { kind: 'start' };
+  if (map.finish && Math.hypot(w2sX(map.finish.x) - sx, w2sY(map.finish.z) - sy) <= tol) return { kind: 'finish' };
   if (tool === 'select') {
     const wx = s2wX(sx), wz = s2wY(sy);
     for (const bay of BAYS) {
@@ -673,21 +720,27 @@ function hitTest(sx, sy) {
 }
 
 cv.addEventListener('pointerdown', e => {
-  if (e.button === 1 || e.button === 2) { drag = { panning: true, lastSX: e.clientX, lastSY: e.clientY }; return; }
+  if (e.button === 1 || e.button === 2) { rmbMoved = 0; drag = { panning: true, lastSX: e.clientX, lastSY: e.clientY }; return; }
   const sx = e.clientX, sy = e.clientY;
   const hit = hitTest(sx, sy);
   if (hit && hit.kind === 'pt') {
     pushUndo();
-    curRoute = hit.ri; curPt = hit.pi;
+    curRoute = hit.ri; curPt = hit.pi; selCone = -1;
     const pt = routes[hit.ri].pts[hit.pi];
     drag = { kind: 'pt', ri: hit.ri, pi: hit.pi, offX: pt.x - s2wX(sx), offZ: pt.z - s2wY(sy) };
     syncProps(); renderRouteList();
   } else if (hit && hit.kind === 'cone' && tool !== 'cone') {
     pushUndo();
+    selCone = hit.ci;
     drag = { kind: 'cone', ci: hit.ci, offX: map.cones[hit.ci].x - s2wX(sx), offZ: map.cones[hit.ci].z - s2wY(sy) };
   } else if (hit && hit.kind === 'start' && tool !== 'start') {
     pushUndo();
+    selCone = -1;
     drag = { kind: 'start', offX: map.start.x - s2wX(sx), offZ: map.start.z - s2wY(sy) };
+  } else if (hit && hit.kind === 'finish' && tool !== 'finish') {
+    pushUndo();
+    selCone = -1;
+    drag = { kind: 'finish', offX: map.finish.x - s2wX(sx), offZ: map.finish.z - s2wY(sy) };
   } else if (hit && hit.kind === 'bay') {
     toggleBay(hit.id);
     drag = null;
@@ -711,6 +764,7 @@ cv.addEventListener('pointerdown', e => {
       if (hit && hit.kind === 'cone') {
         pushUndo();
         map.cones.splice(hit.ci, 1);
+        selCone = -1;
         saveLocal(); draw();
         return;
       }
@@ -723,7 +777,19 @@ cv.addEventListener('pointerdown', e => {
       map.start.x = snap(s2wX(sx)); map.start.z = snap(s2wY(sy));
       drag = { kind: 'start', offX: 0, offZ: 0 };
       saveLocal();
+    } else if (tool === 'finish') {
+      if (hit && hit.kind === 'finish') {
+        pushUndo();
+        map.finish = null;
+        saveLocal(); draw();
+        return;
+      }
+      pushUndo();
+      map.finish = { x: snap(s2wX(sx)), z: snap(s2wY(sy)), h: 0 };
+      drag = { kind: 'finish', offX: 0, offZ: 0 };
+      saveLocal();
     } else {
+      selCone = -1;
       drag = { panning: true, lastSX: sx, lastSY: sy };
     }
   }
@@ -737,6 +803,7 @@ cv.addEventListener('pointermove', e => {
   document.getElementById('stZ').textContent = snap(s2wY(sy)).toFixed(1);
   if (!drag) return;
   if (drag.panning) {
+    rmbMoved += Math.abs(sx - drag.lastSX) + Math.abs(sy - drag.lastSY);
     view.wx -= (sx - drag.lastSX) / view.scale;
     view.wz += (sy - drag.lastSY) / view.scale;
     drag.lastSX = sx; drag.lastSY = sy;
@@ -751,6 +818,9 @@ cv.addEventListener('pointermove', e => {
   } else if (drag.kind === 'start') {
     map.start.x = snap(s2wX(sx) + drag.offX);
     map.start.z = snap(s2wY(sy) + drag.offZ);
+  } else if (drag.kind === 'finish') {
+    map.finish.x = snap(s2wX(sx) + drag.offX);
+    map.finish.z = snap(s2wY(sy) + drag.offZ);
   }
   draw();
 });
@@ -758,7 +828,29 @@ cv.addEventListener('pointermove', e => {
 function endDrag() { drag = null; saveLocal(); }
 cv.addEventListener('pointerup', endDrag);
 cv.addEventListener('pointercancel', endDrag);
-cv.addEventListener('contextmenu', e => e.preventDefault());
+let rmbMoved = 0;
+cv.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  if (rmbMoved > 6) return;
+  const hit = hitTest(e.clientX, e.clientY);
+  if (hit && hit.kind === 'pt') {
+    pushUndo();
+    const r = routes[hit.ri];
+    r.pts.splice(hit.pi, 1);
+    if (hit.ri === curRoute) {
+      if (curPt === hit.pi) curPt = -1;
+      else if (curPt > hit.pi) curPt--;
+    }
+    saveLocal(); syncProps(); renderRouteList(); draw();
+    toast('Точка удалена');
+  } else if (hit && hit.kind === 'cone') {
+    pushUndo();
+    map.cones.splice(hit.ci, 1);
+    if (selCone === hit.ci) selCone = -1;
+    saveLocal(); draw();
+    toast('Конус удалён');
+  }
+});
 
 function snap(v) { return Math.round(v * 10) / 10; }
 
@@ -824,6 +916,7 @@ document.getElementById('btnExportMap').addEventListener('click', () => {
     cones: map.cones.map(c => ({ x: c.x, z: c.z })),
     bays: map.bays.slice().sort((a, b) => a - b)
   };
+  if (map.finish) out.finish = { x: map.finish.x, z: map.finish.z };
   download('map.json', JSON.stringify(out, null, 2));
   toast('map.json скачан');
 });
@@ -884,6 +977,11 @@ function importMap(data) {
   }
   if (Array.isArray(data.bays)) {
     map.bays = data.bays.filter(v => Number.isInteger(v));
+  }
+  if (data.finish && isFinite(+data.finish.x) && isFinite(+data.finish.z)) {
+    map.finish = { x: +data.finish.x, z: +data.finish.z, h: +data.finish.h || 0 };
+  } else if ('finish' in data) {
+    map.finish = null;
   }
   saveLocal(); fitView();
   toast('Карта импортирована');
