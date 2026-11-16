@@ -1256,6 +1256,9 @@ function update(dt) {
   const target = turn !== 0 ? turn * CAR.maxSteer : mouseTarget;
   const rate = turn !== 0 ? 2.5 : 6.0;
   state.steer += clamp(target - state.steer, -rate * dt, rate * dt);
+  // клавиатурное руление тоже фиксируется на HUD: экранный руль и индикаторы
+  // показывают фактический угол колёс, как при рулении мышью
+  if (turn !== 0) swDeg = state.steer * SW.ratio * 180 / Math.PI;
 
   // кинематическая модель «велосипед»
   const prev = { x: state.x, z: state.z, h: state.h };
