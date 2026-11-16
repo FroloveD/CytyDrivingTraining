@@ -21,6 +21,7 @@
 
 <style id="drivingsim-ui-v3-css">
   .ds-window{box-sizing:border-box;z-index:40}
+  #wheelHud{background:rgba(0,0,0,.32)}
   .ds-titlebar{height:27px;display:flex;align-items:center;gap:7px;padding:2px 4px;
     box-sizing:border-box;background:rgba(15,27,36,.92);color:#f3f7fa;
     border-radius:6px 6px 0 0;font:12px system-ui,sans-serif;user-select:none;touch-action:none}
@@ -60,7 +61,8 @@
     background:rgba(0,0,0,.78);border:1px solid #9aa8b2;border-radius:7px;padding:4px;
     box-shadow:0 3px 12px #0008;pointer-events:auto;touch-action:none;box-sizing:border-box}
   .ds-side-mirror canvas{display:block;width:100%;aspect-ratio:2/1;border-radius:4px;background:#202a31}
-  .ds-side-mirror .ds-titlebar{height:24px}
+  .ds-side-mirror .ds-titlebar{height:20px}
+  .ds-side-mirror .ds-titlebar button{min-width:20px;height:16px;line-height:12px;font-size:11px}
   @media(max-width:700px){
     #dsDock{top:4px;max-width:98vw}
     #dsDashboard{width:220px;right:5px;bottom:5px}
@@ -126,7 +128,7 @@
 </div>
 
 <div id="wheelHud" class="panel" style="left: 12px; bottom: 12px; padding: 6px;">
-  <div id="wheelGrip" style="cursor: move; text-align: center; font-size: 12px; color: #ccc; user-select: none; margin-bottom: 4px;">⋮⋮ перетащить</div>
+  <div id="wheelGrip" style="position: absolute; right: 3px; bottom: 3px; cursor: move; font: bold 12px/1 system-ui; color: #dfe9ef; background: rgba(8,17,24,.65); border: 1px solid rgba(255,255,255,.25); border-radius: 5px; padding: 3px 7px; user-select: none; -webkit-user-select: none; touch-action: none; z-index: 2;">⋮⋮ перетащить</div>
   <svg id="wheelSvg" width="165" height="165" viewBox="0 0 100 100" style="cursor: grab; touch-action: none;">
     <g id="wheelRot">
       <circle cx="50" cy="50" r="42" fill="none" stroke="#e8e8e8" stroke-width="8"/>
@@ -980,6 +982,7 @@ addEventListener('keydown', e => {
     uiHidden = !uiHidden;
     document.body.classList.toggle('ds-ui-hidden', uiHidden);
   }
+  if (e.code === 'Escape') stopPlacing();   // отмена режима «поставить по нажатию»
   if (e.code === 'KeyR') gear = 'R';
   if (e.code === 'KeyF') gear = 'D';
   if (e.code === 'KeyN') gear = 'N';
@@ -1059,9 +1062,10 @@ const wheelGrip = document.getElementById('wheelGrip');
   wheelHud.style.top = r0.top + 'px';
   wheelHud.style.bottom = 'auto';
 }
-let gripDrag = false, gripDx = 0, gripDy = 0;
+let gripDrag = false, gripDx = 0, gripDy = 0, gripDownX = 0, gripDownY = 0;
 wheelGrip.addEventListener('pointerdown', e => {
   gripDrag = true;
+  gripDownX = e.clientX; gripDownY = e.clientY;
   const r = wheelHud.getBoundingClientRect();
   gripDx = e.clientX - r.left;
   gripDy = e.clientY - r.top;
@@ -1073,9 +1077,52 @@ wheelGrip.addEventListener('pointermove', e => {
   wheelHud.style.left = clamp(e.clientX - gripDx, 0, innerWidth - w) + 'px';
   wheelHud.style.top = clamp(e.clientY - gripDy, 0, innerHeight - h) + 'px';
 });
-const endGrip = () => { gripDrag = false; };
+const endGrip = e => {
+  if (gripDrag && e && Math.hypot(e.clientX - gripDownX, e.clientY - gripDownY) < 8) startPlacing(wheelHud, wheelGrip);   // тап без переноса — режим «поставить по нажатию»
+  gripDrag = false;
+};
 wheelGrip.addEventListener('pointerup', endGrip);
 wheelGrip.addEventListener('pointercancel', endGrip);
+
+// режим «поставить по нажатию»: тап по grip включает режим, следующий тап по экрану ставит элемент туда
+let placingEl = null, placingGrip = null;
+const stopPlacing = () => { if (placingEl) placingEl.style.outline = ''; placingEl = null; placingGrip = null; };
+const startPlacing = (el, grip) => { stopPlacing(); placingEl = el; placingGrip = grip || null; el.style.outline = '2px dashed #ffd54f'; };
+document.addEventListener('pointerdown', e => {
+  if (!placingEl) return;
+  e.preventDefault(); e.stopPropagation();
+  const el = placingEl;
+  const inside = (e.target === el || el.contains(e.target)) || (placingGrip && (e.target === placingGrip || placingGrip.contains(e.target)));
+  if (!inside) {
+    const w = el.offsetWidth, h = el.offsetHeight;
+    el.style.position = 'fixed'; el.style.right = 'auto'; el.style.bottom = 'auto';
+    el.style.left = clamp(e.clientX - w / 2, 0, Math.max(0, innerWidth - w)) + 'px';
+    el.style.top = clamp(e.clientY - h / 2, 0, Math.max(0, innerHeight - h)) + 'px';
+  }
+  stopPlacing();
+}, true);
+
+// длинный тап (500 мс) по перемещаемому элементу тоже включает режим «поставить»
+const LP_MS = 500;
+let lpTimer = 0, lpX = 0, lpY = 0;
+const movableTarget = t => {
+  if (!t || !t.closest) return null;
+  if (t.closest('input, canvas, #wheelSvg, #dsTouchPedals, .ds-titlebar button, #dsDock button')) return null;   // газ, тормоз, руль и кнопки — исключены
+  return t.closest('#dsTouchActions, #dsGearSelector, .ds-window, .ds-side-mirror, #rearMirror');
+};
+document.addEventListener('pointerdown', e => {
+  if (placingEl) return;
+  const el = movableTarget(e.target);
+  if (!el) return;
+  lpX = e.clientX; lpY = e.clientY;
+  lpTimer = setTimeout(() => { startPlacing(el); lpTimer = 0; }, LP_MS);
+}, true);
+document.addEventListener('pointermove', e => {
+  if (lpTimer && Math.hypot(e.clientX - lpX, e.clientY - lpY) > 10) { clearTimeout(lpTimer); lpTimer = 0; }
+}, true);
+const lpCancel = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = 0; } };
+document.addEventListener('pointerup', lpCancel, true);
+document.addEventListener('pointercancel', lpCancel, true);
 
 // зеркало заднего вида на экране: отражение — тот же вид, что в 3D-зеркале (инверсия как у зеркала)
 const rearMirror = document.getElementById('rearMirror');
@@ -1933,7 +1980,7 @@ if (osmFileInput) {
     const box=document.createElement('section');
     box.id=id; box.className='ds-side-mirror';
     const head=document.createElement('div'); head.className='ds-titlebar';
-    const title=document.createElement('span'); title.className='ds-name'; title.textContent=label;
+    const title=document.createElement('span'); title.className='ds-name'; title.title=label; title.setAttribute('aria-label',label);
     const min=document.createElement('button'); min.type='button'; min.textContent='−'; min.title='Свернуть зеркало';
     const close=document.createElement('button'); close.type='button'; close.textContent='×'; close.title='Скрыть зеркало';
     const canvas=document.createElement('canvas'); canvas.width=320; canvas.height=160;
@@ -2528,7 +2575,7 @@ cam.updateMatrixWorld(true);
     grip.addEventListener('pointerdown', e => {
       e.preventDefault(); e.stopPropagation();
       const r = el.getBoundingClientRect();
-      drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+      drag = { dx: e.clientX - r.left, dy: e.clientY - r.top, x: e.clientX, y: e.clientY };
       el.style.position = 'fixed';   // педали изначально в потоке группы — при переносе становятся независимыми
       el.style.right = 'auto'; el.style.bottom = 'auto';
       el.style.left = r.left + 'px'; el.style.top = r.top + 'px';
@@ -2540,7 +2587,10 @@ cam.updateMatrixWorld(true);
       el.style.left = Math.max(0, Math.min(innerWidth - el.offsetWidth, e.clientX - drag.dx)) + 'px';
       el.style.top = Math.max(26, Math.min(innerHeight - el.offsetHeight, e.clientY - drag.dy)) + 'px';   // grip (top:-24px) не уходит за верхний край
     });
-    const stop = () => { drag = null; el.style.zIndex = ''; };
+    const stop = e => {
+      if (drag && e && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 8) startPlacing(el, grip);   // тап без переноса — режим «поставить по нажатию»
+      drag = null; el.style.zIndex = '';
+    };
     grip.addEventListener('pointerup', stop);
     grip.addEventListener('pointercancel', stop);
   };
@@ -2568,12 +2618,21 @@ cam.updateMatrixWorld(true);
   }, true);
 
   const hold = (btn, code) => {
-    const on = e => { e.preventDefault(); keys[code] = true; btn.classList.add('ds-pressed'); };
-    const off = e => { e.preventDefault(); keys[code] = false; btn.classList.remove('ds-pressed'); };
+    const on = e => {
+      if (e.cancelable) e.preventDefault();
+      try { btn.setPointerCapture(e.pointerId); } catch (_) {}   // палец/курсор держит педаль даже при захвате другим элементом
+      keys[code] = true;
+      btn.classList.add('ds-pressed');
+    };
+    const tOn = e => { if (e.cancelable) e.preventDefault(); keys[code] = true; btn.classList.add('ds-pressed'); };   // фолбэк: touch-события всегда таргетят кнопку
+    const off = () => { keys[code] = false; btn.classList.remove('ds-pressed'); };
     btn.addEventListener('pointerdown', on);
     btn.addEventListener('pointerup', off);
     btn.addEventListener('pointercancel', off);
-    btn.addEventListener('pointerleave', off);
+    btn.addEventListener('lostpointercapture', off);
+    btn.addEventListener('touchstart', tOn, { passive: false });
+    btn.addEventListener('touchend', off);
+    btn.addEventListener('touchcancel', off);
   };
   hold(gas, 'KeyW');
   hold(brake, 'KeyS');
