@@ -31,9 +31,9 @@
   .ds-titlebar button:hover{background:#405b6b}
   .ds-content{min-width:0}
   .ds-collapsed .ds-content{display:none}
-  .ds-window .ds-titlebar{display:none}
+  .ds-window .ds-titlebar{visibility:hidden}
   .ds-window.ds-tb-show .ds-titlebar,
-  .ds-window.ds-collapsed .ds-titlebar{display:flex}
+  .ds-window.ds-collapsed .ds-titlebar{visibility:visible}
   .ds-hidden{display:none!important}
   body.ds-ui-hidden .ds-window,body.ds-ui-hidden .ds-side-mirror,body.ds-ui-hidden #dsDock{display:none!important}
   #dsDock{position:fixed;z-index:10000;left:50%;top:7px;transform:translateX(-50%);
@@ -64,10 +64,10 @@
     background:rgba(0,0,0,.78);border:1px solid #9aa8b2;border-radius:7px;padding:4px;
     box-shadow:0 3px 12px #0008;pointer-events:auto;touch-action:none;box-sizing:border-box}
   .ds-side-mirror canvas{display:block;width:100%;aspect-ratio:2/1;border-radius:4px;background:#202a31}
-  .ds-side-mirror .ds-titlebar{height:20px;display:none}
+  .ds-side-mirror .ds-titlebar{height:20px;visibility:hidden}
   .ds-side-mirror .ds-titlebar button{min-width:20px;height:16px;line-height:12px;font-size:11px}
   .ds-side-mirror.ds-tb-show .ds-titlebar,
-  .ds-side-mirror.ds-collapsed .ds-titlebar{display:flex}
+  .ds-side-mirror.ds-collapsed .ds-titlebar{visibility:visible}
   @media(max-width:700px){
     #dsDock{top:4px;max-width:98vw}
     #dsDashboard{width:220px;right:5px;bottom:5px}
