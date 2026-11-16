@@ -1106,10 +1106,21 @@ rearMirror.addEventListener('pointercancel', endMirrorDrag);
 // размер зеркала: ширина задаётся ползунком, высота — по пропорции 4:1
 const mirrorSizeInput = document.getElementById('mirrorSize');
 const mirrorSizeVal = document.getElementById('mirrorSizeVal');
+const SETTINGS_KEY = 'drivingsim.settings.v1';
+let settings = {};
+try { settings = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') || {}; } catch (_) {}
+const saveSettings = () => { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (_) {} };
+if (typeof settings.mirrorSize === 'number') {
+  mirrorSizeInput.value = settings.mirrorSize;
+  mirrorSizeVal.textContent = settings.mirrorSize;
+  rearMirror.style.width = settings.mirrorSize + 'px';
+  rearMirror.style.left = Math.max(0, (innerWidth - settings.mirrorSize) / 2) + 'px';
+}
 mirrorSizeInput.addEventListener('input', () => {
   const w = +mirrorSizeInput.value;
   rearMirror.style.width = w + 'px';
   mirrorSizeVal.textContent = w;
+  settings.mirrorSize = w; saveSettings();
   rearMirror.style.left = clamp(parseFloat(rearMirror.style.left) || 0, 0, innerWidth - w) + 'px';
   rearMirror.style.top = clamp(parseFloat(rearMirror.style.top) || 0, 0, innerHeight - rearMirror.offsetHeight) + 'px';
 });
@@ -1118,8 +1129,18 @@ const bindSens = (inputId, valId, set) => {
   const input = document.getElementById(inputId), out = document.getElementById(valId);
   input.addEventListener('input', () => { set(+input.value); out.textContent = (+input.value).toFixed(1); });
 };
-bindSens('steerRange', 'steerVal', v => { steerSens = v; });
-bindSens('camRange', 'camVal', v => { camSens = v; });
+if (typeof settings.steerSens === 'number') {
+  steerSens = settings.steerSens;
+  document.getElementById('steerRange').value = steerSens;
+  document.getElementById('steerVal').textContent = steerSens.toFixed(1);
+}
+if (typeof settings.camSens === 'number') {
+  camSens = settings.camSens;
+  document.getElementById('camRange').value = camSens;
+  document.getElementById('camVal').textContent = camSens.toFixed(1);
+}
+bindSens('steerRange', 'steerVal', v => { steerSens = v; settings.steerSens = v; saveSettings(); });
+bindSens('camRange', 'camVal', v => { camSens = v; settings.camSens = v; saveSettings(); });
 
 function setPreset(i) {
   presetIndex = i;
@@ -1704,22 +1725,8 @@ if (osmFileInput) {
   dock.append(dockHead,dockContent);
   document.body.appendChild(dock);
 
-  const storageKey = 'drivingsim.ui.v4.layout';
   let saved = {};
-  try { saved = JSON.parse(localStorage.getItem(storageKey) || '{}') || {}; } catch (_) {}
-  const persist = () => {
-    const data = {};
-    document.querySelectorAll('.ds-window').forEach(n => {
-      data[n.id] = {left:n.style.left,top:n.style.top,width:n.style.width,
-        hidden:n.classList.contains('ds-hidden'),collapsed:n.classList.contains('ds-collapsed')};
-    });
-    data.__dock={left:dock.style.left,top:dock.style.top,collapsed:dock.classList.contains('ds-dock-collapsed')};
-    document.querySelectorAll('.ds-side-mirror').forEach(n=>{
-      data[n.id]={left:n.style.left,top:n.style.top,hidden:n.classList.contains('ds-hidden'),
-        collapsed:n.classList.contains('ds-collapsed')};
-    });
-    try { localStorage.setItem(storageKey, JSON.stringify(data)); } catch (_) {}
-  };
+  const persist = () => {};
 
   dockMin.addEventListener('click',e=>{
     e.preventDefault();e.stopPropagation();
@@ -1845,11 +1852,9 @@ if (osmFileInput) {
 
   // По умолчанию все окна HUD свёрнуты в заголовки — пока у окна нет сохранённого состояния
   document.querySelectorAll('.ds-window').forEach(n => {
-    if (!saved[n.id]) {
-      n.classList.add('ds-collapsed');
-      const mb = n.querySelector('.ds-titlebar button');
-      if (mb) mb.textContent = '+';
-    }
+    n.classList.add('ds-collapsed');
+    const mb = n.querySelector('.ds-titlebar button');
+    if (mb) mb.textContent = '+';
   });
   const tachCtx=tach.querySelector('canvas').getContext('2d');
   let tachKey='';
@@ -2454,17 +2459,6 @@ cam.updateMatrixWorld(true);
   if ((window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
       'ontouchstart' in window || (navigator.maxTouchPoints || 0) > 0) enable();
   else window.addEventListener('touchstart', enable, { once: true, passive: true });
-
-  if (innerWidth <= 700 && innerHeight <= 460) {
-    ['hud','osmPanel','sensPanel','help'].forEach(id => {
-      const n = document.getElementById(id);
-      if (n && n.classList.contains('ds-window')) {
-        n.classList.add('ds-collapsed');
-        const mb = n.querySelector('.ds-titlebar button');
-        if (mb) mb.textContent = '+';
-      }
-    });
-  }
 
   const mkBtn = (cls, text, title) => {
     const b = document.createElement('button');
