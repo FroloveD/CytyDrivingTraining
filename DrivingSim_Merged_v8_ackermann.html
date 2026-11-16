@@ -44,6 +44,9 @@
     overflow:hidden;background:rgba(5,12,18,.88);color:#eaf1f5;border:1px solid #627583;
     border-radius:8px;box-shadow:0 4px 18px #0009;font:12px system-ui}
   #dsDashboard .ds-content{padding:7px 9px}
+  #dsTach{position:fixed;left:12px;top:200px;width:150px;padding:0}
+  #dsTach .ds-content{padding:4px}
+  #dsTach canvas{display:block;width:100%;height:auto;aspect-ratio:1/1;border-radius:4px;background:#202a31}
   #dsDashCanvas{display:block;width:100%;height:auto}
   #dsDashStatus{display:flex;justify-content:space-between;gap:5px;flex-wrap:wrap;margin-top:4px}
   .ds-indicator{padding:3px 6px;border-radius:4px;background:#26333b;color:#aab7bf}
@@ -58,6 +61,7 @@
     #dsDock{top:4px;max-width:98vw}
     #dsDashboard{width:220px;right:5px;bottom:5px}
     .ds-side-mirror{min-width:110px;width: min(43vw, 190px);padding:3px}
+    #dsTach{width:110px;top:160px}
   }
   /* тач-управление: педали справа и кнопки фич слева (видны на тачскрин-устройствах) */
   #dsTouchPedals{position:fixed;right:14px;bottom:200px;z-index:10001;display:none;flex-direction:column;gap:12px;pointer-events:none}
@@ -1201,6 +1205,22 @@ function gearLabel() {
   return gear === 'D' ? 'D' + autoGear : gear;
 }
 
+// тахометр: холостой ход ~800 об/мин, отсечка ~6500; обороты растут от газа
+// и от скорости в текущей передаче (на нейтрали газ крутит двигатель на месте)
+const RPM_IDLE = 800, RPM_REDLINE = 6500;
+let rpmCur = 0;
+function updateRpm(dt) {
+  let target = 0;
+  if (engineRunning) {
+    const gas = !!(keys.KeyW || keys.ArrowUp) && !handbrakeActive;
+    const kmhMax = gear === 'R' ? REV_KMH : (GEARS_KMH[currentGearNum()] || 180);
+    const speedFrac = Math.min(1, Math.abs(state.v) * 3.6 / kmhMax);
+    target = RPM_IDLE + speedFrac * (RPM_REDLINE - RPM_IDLE) * (gas ? 1 : 0.72);
+    if (gas) target = Math.max(target, RPM_IDLE + (RPM_REDLINE - RPM_IDLE) * 0.5 * (1 - 0.35 * speedFrac));
+  }
+  rpmCur += (target - rpmCur) * Math.min(1, dt * 5);
+}
+
 function update(dt) {
   // автоматическое переключение D (1–5) по скорости, с гистерезисом
   if (gear === 'D') {
@@ -1367,6 +1387,7 @@ function loop(now) {
     const steps = Math.min(20, Math.max(1, Math.ceil(Math.abs(state.v) * dt / 0.1)));
     for (let i = 0; i < steps; i++) update(dt / steps);
   }
+  updateRpm(dt);
   syncCar(now);
   updateCamera(0.12);
   updateHud();
@@ -1798,6 +1819,45 @@ if (osmFileInput) {
     '<span class="ds-indicator" id="dsSteerIndicator">РУЛЬ 0°</span></div></div>';
   document.body.appendChild(dashboard);
   makeWindow(dashboard,'ПРИБОРНАЯ ПАНЕЛЬ');
+
+  // Тахометр: отдельное окно — видно, заглушен ли двигатель, и реакцию на газ
+  const tach=document.createElement('section');
+  tach.id='dsTach';
+  tach.innerHTML='<canvas id="dsTachCanvas" width="200" height="200"></canvas>';
+  document.body.appendChild(tach);
+  makeWindow(tach,'ТАХОМЕТР');
+  const tachCtx=tach.querySelector('canvas').getContext('2d');
+  let tachKey='';
+  function drawTach(){
+    const k=Math.round(rpmCur/25)+'|'+engineRunning;
+    if(k===tachKey)return;
+    tachKey=k;
+    const ctx=tachCtx,cx=100,cy=104,r=78,rpmMax=8000;
+    const a0=Math.PI*0.75,span=Math.PI*1.5;
+    ctx.fillStyle='#0b151c';ctx.fillRect(0,0,200,200);
+    ctx.beginPath();ctx.arc(cx,cy,r,a0,a0+span);
+    ctx.lineWidth=14;ctx.strokeStyle='#354650';ctx.stroke();
+    ctx.beginPath();ctx.arc(cx,cy,r,a0+span*(RPM_REDLINE/rpmMax),a0+span);
+    ctx.strokeStyle='#8f2f2b';ctx.stroke();
+    const frac=Math.min(rpmCur,rpmMax)/rpmMax;
+    ctx.beginPath();ctx.arc(cx,cy,r,a0,a0+span*frac);
+    ctx.strokeStyle=engineRunning?'#e2b93b':'#5a6a74';ctx.stroke();
+    ctx.fillStyle='#d8e2e8';ctx.font='13px system-ui';ctx.textAlign='center';
+    for(let n=0;n<=8;n++){
+      const a=a0+span*(n*1000/rpmMax);
+      ctx.fillText(String(n),cx+Math.cos(a)*(r-22),cy+Math.sin(a)*(r-22)+4);
+    }
+    const na=a0+span*frac;
+    ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+Math.cos(na)*(r-16),cy+Math.sin(na)*(r-16));
+    ctx.strokeStyle='#ff5b52';ctx.lineWidth=4;ctx.lineCap='round';ctx.stroke();
+    ctx.beginPath();ctx.arc(cx,cy,6,0,Math.PI*2);ctx.fillStyle='#f1f5f7';ctx.fill();
+    ctx.font='bold 20px system-ui';ctx.fillStyle='#fff';
+    ctx.fillText(String(Math.round(rpmCur)),cx,cy+38);
+    if(engineRunning){ctx.font='12px system-ui';ctx.fillStyle='#a9bac4';ctx.fillText('об/мин',cx,cy+56);}
+    else{ctx.font='bold 13px system-ui';ctx.fillStyle='#ff6b62';ctx.fillText('ДВИГАТЕЛЬ ЗАГЛУШЕН',cx,cy+56);}
+  }
+  const oldUpdateHudTach=updateHud;
+  updateHud=function(){oldUpdateHudTach();drawTach();};
 
   const mirrorPair=document.createElement('div');
   mirrorPair.id='dsMirrorPair';
