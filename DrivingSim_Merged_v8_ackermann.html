@@ -118,6 +118,21 @@
 
 <div id="status"></div>
 
+<div id="examPanel" class="panel" style="left: 210px; top: 120px; padding: 6px; min-width: 240px;">
+  <button type="button" data-exam="0" style="display:block;width:100%;margin:3px 0;padding:5px;cursor:pointer">▶ Маршрут №1 — круг с остановкой</button>
+  <button type="button" data-exam="1" style="display:block;width:100%;margin:3px 0;padding:5px;cursor:pointer">▶ Маршрут №2 — короткий</button>
+  <button type="button" id="examStop" style="display:block;width:100%;margin:3px 0;padding:5px;cursor:pointer">■ Завершить маршрут</button>
+  <button type="button" id="examLoad" style="display:block;width:100%;margin:3px 0;padding:5px;cursor:pointer">📂 Загрузить маршруты (JSON)</button>
+  <button type="button" id="examReset" style="display:block;width:100%;margin:3px 0;padding:5px;cursor:pointer">↺ Встроенные маршруты</button>
+  <input type="file" id="examFile" accept=".json,application/json" style="display:none">
+</div>
+
+<div id="examResult" style="display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:70;background:rgba(18,22,28,0.95);border:1px solid #3a4656;border-radius:10px;padding:18px 26px;min-width:260px;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,0.5)">
+  <div id="examResultTitle" style="font-weight:700;font-size:18px;margin-bottom:8px"></div>
+  <div id="examResultBody" style="margin-bottom:12px;line-height:1.5"></div>
+  <button type="button" id="examResultClose" style="padding:5px 18px;cursor:pointer">OK</button>
+</div>
+
 <div id="sensPanel" class="panel" style="right: 12px; top: 12px;">
   Руль (ЛКМ): <b id="steerVal">1.0</b>×<br>
   <input id="steerRange" type="range" min="0.3" max="3" step="0.1" value="1" style="width: 200px"><br>
@@ -129,6 +144,9 @@
   <input id="sideMirrorSize" type="range" min="110" max="400" step="10" value="250" style="width: 200px">
   <br>Руль (размер): <b id="wheelSizeVal">165</b> px<br>
   <input id="wheelSize" type="range" min="90" max="320" step="5" value="165" style="width: 200px">
+  <br><button type="button" id="mapLoad" style="margin-top:6px;padding:4px 8px;cursor:pointer">📂 Загрузить карту (JSON)</button>
+<button type="button" id="mapReset" style="margin-top:4px;padding:4px 8px;cursor:pointer">↺ Встроенная карта</button>
+  <input type="file" id="mapFile" accept=".json,application/json" style="display:none">
 </div>
 
 <div id="wheelHud" class="panel" style="left: 12px; bottom: 12px; padding: 6px;">
@@ -902,15 +920,33 @@ for (const bay of bays) {
     z1: Math.min(bay.zB, bay.zB + sign * 0.2), z2: Math.max(bay.zB, bay.zB + sign * 0.2)
   });
 
-  // припаркованный автомобиль в занятом боксе
-  if (bay.occupied) {
-    const d = DIM[PARKED_MODEL[bay.id]];
+  // припаркованный автомобиль в боксе (машина есть в каждом боксе, видимость = занятость)
+  {
+    const d = DIM[PARKED_MODEL[bay.id] || 'ceed'];
     const lenP = d.rear + d.L + d.front;
     const centerP = (d.L + d.front - d.rear) / 2;
-    const pc = makeCar(PARKED_COLOR[bay.id], d);
+    const pc = makeCar(PARKED_COLOR[bay.id] || 0x9e9e9e, d);
     pc.position.set(bay.xc, 0, zc - centerP);
+    pc.visible = bay.occupied;
     scene.add(pc);
-    blocks.push({ x1: bay.xc - d.w / 2, x2: bay.xc + d.w / 2, z1: zc - lenP / 2, z2: zc + lenP / 2 });
+    bay.parkedCar = pc;
+    bay.parkedBlock = { x1: bay.xc - d.w / 2, x2: bay.xc + d.w / 2, z1: zc - lenP / 2, z2: zc + lenP / 2, parkedBay: bay.id };
+    if (bay.occupied) blocks.push(bay.parkedBlock);
+  }
+}
+
+function applyBays(occupiedIds) {
+  const set = new Set(occupiedIds);
+  for (const bay of bays) {
+    const occ = set.has(bay.id);
+    if (occ === bay.occupied) continue;
+    bay.occupied = occ;
+    if (bay.parkedCar) bay.parkedCar.visible = occ;
+    if (bay.parkedBlock) {
+      const i = blocks.indexOf(bay.parkedBlock);
+      if (occ && i === -1) blocks.push(bay.parkedBlock);
+      if (!occ && i !== -1) blocks.splice(i, 1);
+    }
   }
 }
 
@@ -930,15 +966,18 @@ for (let i = 0; i < PAR_COUNT; i++) {
     addBox(0.12, 0.02, PAR.w, xc - PAR.l / 2, 0.01, PAR_ZC, 0xffffff),
     addBox(0.12, 0.02, PAR.w, xc + PAR.l / 2, 0.01, PAR_ZC, 0xffffff)
   ];
-  if (bay.occupied) {
-    const d = DIM[PAR_MODEL[bay.id]];
+  {
+    const d = DIM[PAR_MODEL[bay.id] || 'ceed'];
     const lenP = d.rear + d.L + d.front;
     const centerP = (d.L + d.front - d.rear) / 2;
-    const pc = makeCar(PAR_COLOR[bay.id], d);
+    const pc = makeCar(PAR_COLOR[bay.id] || 0x9e9e9e, d);
     pc.rotation.y = Math.PI / 2;               // вдоль оси X
     pc.position.set(xc - centerP, 0, PAR_ZC);
+    pc.visible = bay.occupied;
     scene.add(pc);
-    blocks.push({ x1: xc - lenP / 2, x2: xc + lenP / 2, z1: PAR_ZC - d.w / 2, z2: PAR_ZC + d.w / 2 });
+    bay.parkedCar = pc;
+    bay.parkedBlock = { x1: xc - lenP / 2, x2: xc + lenP / 2, z1: PAR_ZC - d.w / 2, z2: PAR_ZC + d.w / 2, parkedBay: bay.id };
+    if (bay.occupied) blocks.push(bay.parkedBlock);
   }
 }
 // бордюр с дальней стороны ряда
@@ -953,11 +992,226 @@ const cones = [
   { x: -6, z: AISLE + 0.5 }, { x: 6, z: AISLE + 0.5 },
   { x: -14, z: -9 }, { x: 14, z: -9 }
 ];
-for (const c of cones) {
-  const cone = new THREE.Mesh(new THREE.ConeGeometry(CONE_R, 0.6, 12), mat(0xff7a1a));
-  cone.position.set(c.x, 0.3, c.z);
-  scene.add(cone);
+const coneMeshes = [];
+function rebuildCones() {
+  for (const m of coneMeshes) scene.remove(m);
+  coneMeshes.length = 0;
+  for (const c of cones) {
+    if (c.osm) continue;
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(CONE_R, 0.6, 12), mat(0xff7a1a));
+    cone.position.set(c.x, 0.3, c.z);
+    scene.add(cone);
+    coneMeshes.push(cone);
+  }
 }
+rebuildCones();
+const BUILTIN_CONES = JSON.parse(JSON.stringify(cones));
+const BUILTIN_BAYS = bays.filter(b => b.occupied).map(b => b.id);
+const LS_MAP = 'drivingsim.map.v1';
+
+// ================= экзаменационные маршруты =================
+// Маршрут — упорядоченные точки на автодроме: точка засчитывается, когда машина в её радиусе;
+// точки с stop:true требуют стоять 1,5 с. Конвенция: лево = +X, вперёд = +Z.
+const EXAM_ROUTES = [
+  {
+    name: 'Маршрут №1 — круг с остановкой',
+    pts: [
+      { x: 0,   z: 3,    r: 5, name: 'Старт в проезде' },
+      { x: 14,  z: 3,    r: 4, name: 'Проезд вдоль рядов' },
+      { x: 16,  z: 14,   r: 5, name: 'Выезд на свободную площадку' },
+      { x: 0,   z: 20,   r: 5, name: 'Движение вправо' },
+      { x: -16, z: 14,   r: 5, name: 'К левому краю площадки' },
+      { x: -18, z: -18,  r: 5, name: 'Вдоль левого края вниз', stop: true },
+      { x: -6,  z: -22,  r: 5, name: 'Поворот к финишу' },
+      { x: 0,   z: -18,  r: 5, name: 'Финиш — остановка', stop: true }
+    ]
+  },
+  {
+    name: 'Маршрут №2 — короткий',
+    pts: [
+      { x: 0,   z: 3,   r: 5, name: 'Старт в проезде' },
+      { x: 12,  z: 3,   r: 4, name: 'Выезд из проезда' },
+      { x: 16,  z: 12,  r: 5, name: 'Поворот на площадку' },
+      { x: 4,   z: 18,  r: 5, name: 'Остановка на площадке', stop: true },
+      { x: -12, z: 16,  r: 5, name: 'Возврат к проезду' },
+      { x: -16, z: 3,   r: 5, name: 'Край проезда' },
+      { x: 0,   z: 3,   r: 5, name: 'Финиш — остановка', stop: true }
+    ]
+  }
+];
+const BUILTIN_ROUTES = JSON.parse(JSON.stringify(EXAM_ROUTES));
+const LS_ROUTES = 'drivingsim.exam.routes.v1';
+
+function parseRoutesData(data) {
+  if (!Array.isArray(data) || !data.length) throw new Error('нужен непустой массив маршрутов');
+  return data.map((r, i) => {
+    if (!r || !Array.isArray(r.pts) || !r.pts.length) throw new Error('маршрут ' + (i + 1) + ': нет точек');
+    return {
+      name: String(r.name || ('Маршрут №' + (i + 1))),
+      pts: r.pts.map((p, j) => {
+        const x = +p.x, z = +p.z;
+        if (!isFinite(x) || !isFinite(z)) throw new Error('маршрут ' + (i + 1) + ', точка ' + (j + 1) + ': координаты не числа');
+        return { x, z, r: Math.min(30, Math.max(1, +p.r || 5)), name: String(p.name || ('Точка ' + (j + 1))), stop: !!p.stop };
+      })
+    };
+  });
+}
+
+function applyRoutes(list) {
+  EXAM_ROUTES.length = 0;
+  for (const r of list) EXAM_ROUTES.push(r);
+  rebuildExamMarkers();
+  rebuildExamPanel();
+  stopExam();
+}
+
+const exam = { active: false, done: false, ri: -1, idx: 0, holdT: 0, score: 0, dist: 0, flash: 0, time: 0, touches: 0 };
+
+const examGroup = new THREE.Group();
+scene.add(examGroup);
+const examMarkers = [];
+function rebuildExamMarkers() {
+  for (const m of examMarkers) { examGroup.remove(m.ring); examGroup.remove(m.beam); }
+  examMarkers.length = 0;
+  EXAM_ROUTES.forEach((route, ri) => {
+    route.pts.forEach((pt, pi) => {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(pt.r - 0.4, 0.15, 8, 40),
+        new THREE.MeshBasicMaterial({ color: 0x9aa8b2, transparent: true, opacity: 0.25 })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(pt.x, 0.05, pt.z);
+      const beam = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.3, 0.3, 5, 10),
+        new THREE.MeshBasicMaterial({ color: 0x9aa8b2, transparent: true, opacity: 0.12 })
+      );
+      beam.position.set(pt.x, 2.5, pt.z);
+      ring.visible = beam.visible = false;
+      examGroup.add(ring, beam);
+      examMarkers.push({ ring, beam, ri, pi });
+    });
+  });
+}
+rebuildExamMarkers();
+
+function examRefreshMarkers() {
+  for (const m of examMarkers) {
+    const active = exam.active && m.ri === exam.ri && !exam.done;
+    const pt = EXAM_ROUTES[m.ri].pts[m.pi];
+    const isNext = active && m.pi === exam.idx;
+    const isFuture = active && m.pi > exam.idx;
+    const col = isNext ? (pt.stop ? 0xffd54f : 0x66ff66) : 0x9aa8b2;
+    m.ring.visible = m.beam.visible = isNext || isFuture;
+    m.ring.material.color.set(col);
+    m.beam.material.color.set(col);
+    m.ring.material.opacity = isNext ? 0.9 : 0.25;
+    m.beam.material.opacity = isNext ? 0.45 : 0.12;
+  }
+}
+
+function hideExamResult() {
+  document.getElementById('examResult').style.display = 'none';
+}
+function showExamResult() {
+  const t = Math.max(0, Math.round(exam.time || 0));
+  const mm = String(Math.floor(t / 60)).padStart(2, '0');
+  const ss = String(t % 60).padStart(2, '0');
+  document.getElementById('examResultTitle').textContent = 'Маршрут пройден!';
+  document.getElementById('examResultBody').innerHTML = 'Балл: <b>' + exam.score + '</b><br>Время: ' + mm + ':' + ss + '<br>Касаний: ' + exam.touches;
+  document.getElementById('examResult').style.display = 'block';
+}
+function startExam(ri) {
+  reset();
+  exam.active = true; exam.done = false; exam.ri = ri; exam.idx = 0; exam.holdT = 0; exam.score = 0; exam.dist = 0; exam.flash = 0;
+  hideExamResult();
+  examRefreshMarkers();
+}
+function stopExam() {
+  exam.active = false; exam.done = false; exam.ri = -1; exam.idx = 0; exam.holdT = 0; exam.dist = 0; exam.flash = 0;
+  hideExamResult();
+  examRefreshMarkers();
+}
+function examAdvance() {
+  exam.holdT = 0;
+  exam.idx++;
+  if (exam.idx >= EXAM_ROUTES[exam.ri].pts.length) {
+    exam.done = true;
+    exam.score = Math.max(0, 100 - 15 * collisions);
+    exam.time = elapsed;
+    exam.touches = collisions;
+    showExamResult();
+  }
+  exam.flash = 1.2;
+  examRefreshMarkers();
+}
+function examUpdate(dt) {
+  exam.flash = Math.max(0, exam.flash - dt);
+  if (!exam.active || exam.done) { exam.dist = 0; return; }
+  const pt = EXAM_ROUTES[exam.ri].pts[exam.idx];
+  const dist = Math.hypot(state.x - pt.x, state.z - pt.z);
+  exam.dist = dist;
+  const stopped = Math.abs(state.v) < 0.05;
+  if (dist < pt.r) {
+    if (pt.stop) {
+      if (stopped) { exam.holdT += dt; if (exam.holdT >= 1.5) examAdvance(); }
+      else exam.holdT = 0;
+    } else examAdvance();
+  } else exam.holdT = 0;
+}
+function rebuildExamPanel() {
+  const panel = document.getElementById('examPanel');
+  panel.querySelectorAll('button[data-exam]').forEach(b => b.remove());
+  const anchor = document.getElementById('examStop');
+  EXAM_ROUTES.forEach((route, ri) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.exam = String(ri);
+    b.style.cssText = 'display:block;width:100%;margin:3px 0;padding:5px;cursor:pointer';
+    b.textContent = '▶ ' + route.name;
+    b.addEventListener('click', () => startExam(ri));
+    panel.insertBefore(b, anchor);
+  });
+}
+document.querySelectorAll('#examPanel button[data-exam]').forEach(b => b.addEventListener('click', () => startExam(+b.dataset.exam)));
+document.getElementById('examStop').addEventListener('click', stopExam);
+document.getElementById('examLoad').addEventListener('click', () => document.getElementById('examFile').click());
+document.getElementById('examFile').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!Array.isArray(data) || !data.length) throw new Error('нужен непустой массив маршрутов');
+      const clean = parseRoutesData(data);
+      try { localStorage.setItem(LS_ROUTES, JSON.stringify(clean)); } catch (err) {}
+      applyRoutes(clean);
+      alert('Загружено маршрутов: ' + clean.length + ' (сохранены для следующих запусков)');
+    } catch (err) {
+      alert('Ошибка загрузки маршрутов: ' + err.message);
+    }
+  };
+  reader.readAsText(f);
+  e.target.value = '';
+});
+document.getElementById('examReset').addEventListener('click', () => {
+  try { localStorage.removeItem(LS_ROUTES); } catch (err) {}
+  applyRoutes(JSON.parse(JSON.stringify(BUILTIN_ROUTES)));
+  alert('Возвращены встроенные маршруты');
+});
+(function restoreRoutes() {
+  try {
+    const raw = localStorage.getItem(LS_ROUTES);
+    if (!raw) return;
+    const clean = parseRoutesData(JSON.parse(raw));
+    EXAM_ROUTES.length = 0;
+    for (const r of clean) EXAM_ROUTES.push(r);
+    rebuildExamMarkers();
+    rebuildExamPanel();
+  } catch (err) {}
+})();
+
+document.getElementById('examResultClose').addEventListener('click', hideExamResult);
 
 // наш автомобиль
 const car = makeCar(0x2d6cdf, DIM.ceed, { sign: true, driver: true });
@@ -1438,6 +1692,8 @@ function update(dt) {
     bay.lines.forEach(m => m.material.color.set(0x66ff66));
   }
 
+  examUpdate(dt);   // прогресс экзаменационного маршрута
+
   refreshStatus(bay);
 }
 
@@ -1447,6 +1703,13 @@ function refreshStatus(bay) {
   if (!engineRunning) text = 'Двигатель выключен. Нажмите I для запуска.';
   else if (handbrakeActive) text = 'Стояночный тормоз активен. Снимите с ручника (Space).';
   else if (!beltFastened) text = 'Внимание! Пристегните ремень (клавиша B).';
+  else if (exam.active && exam.done) text = `Маршрут пройден! Балл: ${exam.score} (касаний: ${collisions})`;
+  else if (exam.active) {
+    const pt = EXAM_ROUTES[exam.ri].pts[exam.idx];
+    const hold = pt.stop && exam.dist < pt.r;
+    text = (exam.flash > 0 ? '✓ ' : '') + `Маршрут ${exam.ri + 1}: точка ${exam.idx + 1}/${EXAM_ROUTES[exam.ri].pts.length} — ${pt.name} (${Math.round(exam.dist)} м)` + (hold ? ' — стойте!' : '');
+  }
+  else if (mapFinish && Math.abs(state.v) < 0.05 && Math.hypot(state.x - mapFinish.x, state.z - mapFinish.z) < 2.5) text = '🏁 Финиш достигнут!';
   else if (finished && bay === finishedBay && Math.abs(state.v) < 0.05) text = `Парковка в боксе №${finishedBay.id} выполнена! Балл: ${score} — можно выезжать`;
   else if (contact) text = 'Касание! Отъездьте назад';
   else if (bay && holdT > 0 && !finished) text = `Бокс №${bay.id}: держите остановку...`;
@@ -1455,10 +1718,45 @@ function refreshStatus(bay) {
   if (text !== lastStatusText) { statusEl.textContent = text; lastStatusText = text; }
 }
 
+let mapStart = null;   // переопределение точки старта из map.json
+let mapFinish = null;  // финиш из map.json (шашечная разметка)
+
+const finishGroup = new THREE.Group();
+scene.add(finishGroup);
+function rebuildFinishMarker() {
+  while (finishGroup.children.length) finishGroup.remove(finishGroup.children[0]);
+  if (!mapFinish) return;
+  const cnv = document.createElement('canvas');
+  cnv.width = cnv.height = 128;
+  const c2 = cnv.getContext('2d');
+  const n = 8, s = 128 / n;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    c2.fillStyle = (i + j) % 2 ? '#16181c' : '#f2f2f2';
+    c2.fillRect(i * s, j * s, s, s);
+  }
+  const tex = new THREE.CanvasTexture(cnv);
+  const pad = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.5, 3.5),
+    new THREE.MeshBasicMaterial({ map: tex })
+  );
+  pad.rotation.x = -Math.PI / 2;
+  pad.position.set(mapFinish.x, 0.02, mapFinish.z);
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 3, 8), mat(0xdddddd));
+  pole.position.set(mapFinish.x - 1.9, 1.5, mapFinish.z);
+  const flag = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.2, 0.8),
+    new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide })
+  );
+  flag.position.set(mapFinish.x - 2.5, 2.6, mapFinish.z);
+  finishGroup.add(pad, pole, flag);
+}
+
 function reset() {
-  Object.assign(state, START, { v: 0, steer: 0 });
+  Object.assign(state, mapStart || START, { v: 0, steer: 0 });
   collisions = 0; elapsed = 0; holdT = 0; finished = false; contact = false; score = 0;
   finishedBay = null;
+  exam.active = false; exam.done = false; exam.ri = -1; exam.idx = 0; exam.holdT = 0; exam.dist = 0;
+  examRefreshMarkers();
   wheelSpin = 0;
   swDeg = 0;
   signal = null;
@@ -1470,6 +1768,92 @@ function reset() {
   bays.forEach(b => b.lines.forEach(m => m.material.color.set(0xffffff)));
   updateCamera(1);
 }
+
+document.getElementById('mapLoad').addEventListener('click', () => document.getElementById('mapFile').click());
+document.getElementById('mapFile').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('ожидался объект карты');
+      if (data.start != null) {
+        const x = +data.start.x, z = +data.start.z, h = +data.start.h || 0;
+        if (!isFinite(x) || !isFinite(z)) throw new Error('старт: некорректные координаты');
+        mapStart = { x: Math.max(-200, Math.min(200, x)), z: Math.max(-200, Math.min(200, z)), h: isFinite(h) ? h : 0 };
+      }
+      if (Array.isArray(data.cones)) {
+        const fresh = data.cones.filter(c => c && isFinite(+c.x) && isFinite(+c.z)).map(c => ({ x: +c.x, z: +c.z }));
+        for (let i = cones.length - 1; i >= 0; i--) if (!cones[i].osm) cones.splice(i, 1);
+        for (const c of fresh) cones.push(c);
+        rebuildCones();
+      }
+      if (Array.isArray(data.bays)) {
+        const ids = data.bays.filter(v => Number.isInteger(v) && v >= 1 && v <= 2 * COLS + PAR_COUNT);
+        applyBays(ids);
+      }
+      if (data.finish && isFinite(+data.finish.x) && isFinite(+data.finish.z)) {
+        const x = +data.finish.x, z = +data.finish.z;
+        mapFinish = { x: Math.max(-200, Math.min(200, x)), z: Math.max(-200, Math.min(200, z)) };
+      } else mapFinish = null;
+      rebuildFinishMarker();
+      reset();
+      try {
+        localStorage.setItem(LS_MAP, JSON.stringify({
+          start: mapStart,
+          cones: cones.filter(c => !c.osm),
+          bays: bays.filter(b => b.occupied).map(b => b.id),
+          finish: mapFinish
+        }));
+      } catch (err) {}
+      alert('Карта загружена: конусов ' + cones.filter(c => !c.osm).length + ', боксов занято ' + bays.filter(b => b.occupied).length + (mapStart ? ', старт перемещён' : '') + (mapFinish ? ', финиш задан' : '') + ' (сохранена для следующих запусков)');
+    } catch (err) {
+      alert('Ошибка загрузки карты: ' + err.message);
+    }
+  };
+  reader.readAsText(f);
+  e.target.value = '';
+});
+document.getElementById('mapReset').addEventListener('click', () => {
+  try { localStorage.removeItem(LS_MAP); } catch (err) {}
+  mapStart = null;
+  mapFinish = null;
+  rebuildFinishMarker();
+  for (let i = cones.length - 1; i >= 0; i--) if (!cones[i].osm) cones.splice(i, 1);
+  for (const c of BUILTIN_CONES) cones.push({ x: c.x, z: c.z });
+  rebuildCones();
+  applyBays(BUILTIN_BAYS);
+  reset();
+  alert('Возвращена встроенная карта');
+});
+(function restoreMap() {
+  try {
+    const raw = localStorage.getItem(LS_MAP);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return;
+    if (data.start != null) {
+      const x = +data.start.x, z = +data.start.z, h = +data.start.h || 0;
+      if (isFinite(x) && isFinite(z)) mapStart = { x: Math.max(-200, Math.min(200, x)), z: Math.max(-200, Math.min(200, z)), h: isFinite(h) ? h : 0 };
+    }
+    if (Array.isArray(data.cones)) {
+      const fresh = data.cones.filter(c => c && isFinite(+c.x) && isFinite(+c.z)).map(c => ({ x: +c.x, z: +c.z }));
+      for (let i = cones.length - 1; i >= 0; i--) if (!cones[i].osm) cones.splice(i, 1);
+      for (const c of fresh) cones.push(c);
+      rebuildCones();
+    }
+    if (Array.isArray(data.bays)) {
+      applyBays(data.bays.filter(v => Number.isInteger(v) && v >= 1 && v <= 2 * COLS + PAR_COUNT));
+    }
+    if (data.finish && isFinite(+data.finish.x) && isFinite(+data.finish.z)) {
+      const x = +data.finish.x, z = +data.finish.z;
+      mapFinish = { x: Math.max(-200, Math.min(200, x)), z: Math.max(-200, Math.min(200, z)) };
+    }
+    rebuildFinishMarker();
+    reset();
+  } catch (err) {}
+})();
 
 // ================= камера =================
 const camTarget = new THREE.Vector3();
@@ -1815,6 +2199,7 @@ if (osmFileInput) {
   const $ = id => document.getElementById(id);
   const specs = [
     ['hud','СОСТОЯНИЕ'],['sensPanel','НАСТРОЙКИ'],['wheelHud','РУЛЬ'],
+    ['examPanel','ЭКЗАМЕН'],
     ['rearMirror','ЦЕНТРАЛЬНОЕ ЗЕРКАЛО'],['osmPanel','КАРТА И ЛОКАЦИИ'],['help','УПРАВЛЕНИЕ']
   ];
   const dock = document.createElement('nav');
