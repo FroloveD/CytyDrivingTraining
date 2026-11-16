@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Редактор карт — CytyDrivingTraining</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #20242a; color: #dfe6ee;
+    font: 13px/1.4 system-ui, 'Segoe UI', Roboto, sans-serif; -webkit-user-select: none; user-select: none; }
+  #cv { position: fixed; inset: 0; display: block; touch-action: none; cursor: crosshair; }
+  #toolbar { position: fixed; left: 8px; top: 8px; z-index: 20; display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+    background: rgba(24,28,34,.92); border: 1px solid #3a414b; border-radius: 8px; padding: 6px; max-width: calc(100vw - 16px); }
+  #toolbar button { background: #2c333d; color: #dfe6ee; border: 1px solid #465060; border-radius: 6px;
+    padding: 5px 9px; cursor: pointer; font: inherit; }
+  #toolbar button:hover { background: #38414e; }
+  #toolbar button.active { background: #2d6cdf; border-color: #5b93ea; }
+  #toolbar button.danger:hover { background: #8c2f2f; }
+  #appTitle { font-weight: 700; letter-spacing: .06em; color: #8fb7f0; padding: 0 6px 0 2px; font-size: 12px; }
+  .sep { width: 1px; height: 20px; background: #3a414b; margin: 0 3px; }
+  #side { position: fixed; left: 8px; top: 92px; bottom: 40px; width: 250px; z-index: 15; overflow-y: auto;
+    background: rgba(24,28,34,.92); border: 1px solid #3a414b; border-radius: 8px; padding: 8px; }
+  @media (max-width: 720px) { #side { width: 200px; top: 132px; } }
+  .sideTitle { font-size: 11px; font-weight: 700; letter-spacing: .08em; color: #8fb7f0; margin: 6px 0 4px; }
+  .routeItem { display: flex; align-items: center; gap: 4px; padding: 4px 6px; border-radius: 6px; cursor: pointer; margin: 2px 0; }
+  .routeItem:hover { background: #2c333d; }
+  .routeItem.sel { background: #2d6cdf; }
+  .routeItem .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .routeItem .cnt { color: #9fb0c3; font-size: 11px; }
+  .routeItem button { background: none; border: none; color: #9fb0c3; cursor: pointer; padding: 0 3px; font: inherit; }
+  .routeItem button:hover { color: #fff; }
+  #ptProps { border: 1px solid #3a414b; border-radius: 6px; padding: 8px; margin-top: 4px; }
+  #ptProps.off { opacity: .45; pointer-events: none; }
+  #ptProps label { display: block; margin: 6px 0 2px; color: #9fb0c3; font-size: 12px; }
+  #ptProps input[type=text], #ptProps input[type=number] { width: 100%; background: #20242a; color: #dfe6ee;
+    border: 1px solid #465060; border-radius: 5px; padding: 4px 6px; font: inherit; }
+  #ptProps .chk { display: flex; align-items: center; gap: 6px; margin-top: 8px; cursor: pointer; color: #dfe6ee; }
+  #ptProps .row { display: flex; gap: 4px; margin-top: 10px; }
+  #ptProps .row button { flex: 1; background: #2c333d; color: #dfe6ee; border: 1px solid #465060; border-radius: 5px; padding: 4px; cursor: pointer; font: inherit; }
+  #ptProps .row button:hover { background: #38414e; }
+  #ptProps .row button.danger:hover { background: #8c2f2f; }
+  #hint { margin-top: 10px; color: #8b98a8; font-size: 11px; line-height: 1.5; }
+  #status { position: fixed; left: 0; right: 0; bottom: 0; height: 28px; z-index: 20; display: flex; align-items: center; gap: 16px;
+    padding: 0 12px; background: rgba(18,21,26,.94); border-top: 1px solid #3a414b; color: #9fb0c3; font-size: 12px; }
+  #status b { color: #dfe6ee; font-weight: 600; }
+  .toast { position: fixed; left: 50%; top: 14px; transform: translateX(-50%); z-index: 40; background: #2d6cdf; color: #fff;
+    border-radius: 8px; padding: 8px 16px; font-weight: 600; box-shadow: 0 4px 16px rgba(0,0,0,.5); pointer-events: none;
+    opacity: 0; transition: opacity .25s; max-width: 80vw; text-align: center; }
+  .toast.show { opacity: 1; }
+  .toast.err { background: #a33; }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+
+<div id="toolbar">
+  <span id="appTitle">РЕДАКТОР КАРТ</span>
+  <button type="button" id="toolSelect" class="tool active" title="Выбор и перенос (V)">✥ Выбор</button>
+  <button type="button" id="toolRoute" class="tool" title="Добавить точку маршрута кликом (R)">📍 Точка</button>
+  <button type="button" id="toolCone" class="tool" title="Добавить конус кликом (C)">▲ Конус</button>
+  <button type="button" id="toolStart" class="tool" title="Поставить точку старта (S)">🚩 Старт</button>
+  <span class="sep"></span>
+  <button type="button" id="btnAddRoute">＋ Маршрут</button>
+  <span class="sep"></span>
+  <button type="button" id="btnExportRoutes" title="Скачать routes.json для симулятора">⬇ Маршруты</button>
+  <button type="button" id="btnExportMap" title="Скачать map.json">⬇ Карта</button>
+  <button type="button" id="btnImport" title="Импорт routes.json / map.json">⬆ Импорт</button>
+  <input type="file" id="fileImport" accept=".json,application/json" hidden>
+  <span class="sep"></span>
+  <button type="button" id="btnZoomOut">−</button>
+  <button type="button" id="btnZoomIn">＋</button>
+  <button type="button" id="btnFit" title="Показать весь автодром">⛶ Вид</button>
+  <button type="button" id="btnReset" title="Вернуть карту и маршруты по умолчанию">↺</button>
+</div>
+
+<div id="side">
+  <div class="sideTitle">МАРШРУТЫ</div>
+  <div id="routeList"></div>
+  <div class="sideTitle">ТОЧКА МАРШРУТА</div>
+  <div id="ptProps" class="off">
+    <label>Название</label>
+    <input type="text" id="ptName" maxlength="60">
+    <label>Радиус, м</label>
+    <input type="number" id="ptR" min="1" max="30" step="0.5">
+    <label class="chk"><input type="checkbox" id="ptStop"> Остановка 1,5 с</label>
+    <div class="row">
+      <button type="button" id="ptUp" title="Раньше по порядку">↑</button>
+      <button type="button" id="ptDown" title="Позже по порядку">↓</button>
+      <button type="button" id="ptDel" class="danger">✕ Точку</button>
+    </div>
+  </div>
+  <div id="hint">
+    Клик «📍 Точка» — добавить точку в выбранный маршрут.<br>
+    Перетаскивание — двигать точку/конус/старт.<br>
+    Клик по полю в режиме «✥ Выбор» — переключить занятость бокса.<br>
+    Колесо — масштаб, пустое место — панорама.<br>
+    Delete — удалить точку, Esc — снять выбор.
+  </div>
+</div>
+
+<div id="status">
+  <span>X: <b id="stX">0</b>, Z: <b id="stZ">0</b> м</span>
+  <span>Масштаб: <b id="stScale">14</b> px/м</span>
+  <span id="stMode">Режим: Выбор</span>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+// ==== Конвенция координат: лево = +X, право = -X, вперёд = +Z (как в симуляторе) ====
+// Экран: вперёд (+Z) — вверх; +X — влево.
+const AISLE = 6.0, COLS = 4, BAY = { w: 2.5, l: 5.3 };
+const PAR = { l: 6.0, w: 2.2, gap: 0.2 }, PAR_ZC = -12.9, PAR_COUNT = 4;
+const CONE_R = 0.25;
+
+const DEFAULT_MAP = {
+  start: { x: 0, z: 2.5, h: 0 },
+  cones: [
+    { x: -6, z: -0.5 }, { x: 6, z: -0.5 },
+    { x: -6, z: AISLE + 0.5 }, { x: 6, z: AISLE + 0.5 },
+    { x: -14, z: -9 }, { x: 14, z: -9 }
+  ],
+  bays: [1, 3, 6, 8, 10, 12]
+};
+
+const DEFAULT_ROUTES = [
+  {
+    name: 'Маршрут №1 — круг с остановкой',
+    pts: [
+      { x: 0,   z: 3,    r: 5, name: 'Старт в проезде' },
+      { x: 14,  z: 3,    r: 4, name: 'Проезд вдоль рядов' },
+      { x: 16,  z: 14,   r: 5, name: 'Выезд на свободную площадку' },
+      { x: 0,   z: 20,   r: 5, name: 'Движение вправо' },
+      { x: -16, z: 14,   r: 5, name: 'К левому краю площадки' },
+      { x: -18, z: -18,  r: 5, name: 'Вдоль левого края вниз', stop: true },
+      { x: -6,  z: -22,  r: 5, name: 'Поворот к финишу' },
+      { x: 0,   z: -18,  r: 5, name: 'Финиш — остановка', stop: true }
+    ]
+  },
+  {
+    name: 'Маршрут №2 — короткий',
+    pts: [
+      { x: 0,   z: 3,   r: 5, name: 'Старт в проезде' },
+      { x: 12,  z: 3,   r: 4, name: 'Выезд из проезда' },
+      { x: 16,  z: 12,  r: 5, name: 'Поворот на площадку' },
+      { x: 4,   z: 18,  r: 5, name: 'Остановка на площадке', stop: true },
+      { x: -12, z: 16,  r: 5, name: 'Возврат к проезду' },
+      { x: -16, z: 3,   r: 5, name: 'Край проезда' },
+      { x: 0,   z: 3,   r: 5, name: 'Финиш — остановка', stop: true }
+    ]
+  }
+];
+
+const LS_KEY = 'cyty.mapeditor.v1';
+let map = JSON.parse(JSON.stringify(DEFAULT_MAP));
+let routes = JSON.parse(JSON.stringify(DEFAULT_ROUTES));
+let curRoute = 0, curPt = -1;
+let tool = 'select';
+
+try {
+  const saved = JSON.parse(localStorage.getItem(LS_KEY));
+  if (saved && Array.isArray(saved.routes) && saved.map) {
+    map = saved.map;
+    routes = saved.routes;
+  }
+} catch (e) { /* повреждённая запись — используем значения по умолчанию */ }
+
+function saveLocal() {
+  try { localStorage.setItem(LS_KEY, JSON.stringify({ map, routes })); } catch (e) { /* переполнение хранилища */ }
+}
+
+// ==== холст и вид ====
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+const view = { scale: 14, wx: 0, wz: 2 };
+
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  draw();
+}
+window.addEventListener('resize', resize);
+
+function w2sX(x) { return W / 2 - (x - view.wx) * view.scale; }
+function w2sY(z) { return H / 2 - (z - view.wz) * view.scale; }
+function s2wX(sx) { return view.wx + (W / 2 - sx) / view.scale; }
+function s2wY(sy) { return view.wz + (H / 2 - sy) / view.scale; }
+
+function fitView() {
+  view.scale = Math.min(W, H) / 60;
+  view.wx = 0; view.wz = 2;
+  draw();
+}
+
+// ==== бокс автодрома (для отрисовки и кликов) ====
+function allBays() {
+  const res = [];
+  for (let i = 0; i < COLS; i++) {
+    const xc = (i - (COLS - 1) / 2) * BAY.w;
+    res.push({ id: i + 1, xc, zE: 0, zB: -BAY.l });
+    res.push({ id: COLS + i + 1, xc, zE: AISLE, zB: AISLE + BAY.l });
+  }
+  for (let i = 0; i < PAR_COUNT; i++) {
+    const xc = (i - (PAR_COUNT - 1) / 2) * (PAR.l + PAR.gap);
+    res.push({ id: 2 * COLS + 1 + i, xc, zc: PAR_ZC, par: true });
+  }
+  return res;
+}
+const BAYS = allBays();
+function bayOccupied(id) { return map.bays.indexOf(id) !== -1; }
+function toggleBay(id) {
+  const i = map.bays.indexOf(id);
+  if (i === -1) map.bays.push(id); else map.bays.splice(i, 1);
+  saveLocal(); draw();
+}
+
+// ==== отрисовка ====
+function draw() {
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = '#2c3524';
+  ctx.fillRect(0, 0, W, H);
+
+  const gx1 = w2sX(200), gx2 = w2sX(-200), gy1 = w2sY(200), gy2 = w2sY(-200);
+  ctx.fillStyle = '#3a3d40';
+  ctx.fillRect(gx1, gy1, gx2 - gx1, gy2 - gy1);
+
+  drawGrid();
+
+  // проезд между рядами (лёгкая подсветка)
+  ctx.fillStyle = 'rgba(255,255,255,0.045)';
+  ctx.fillRect(w2sX(30), w2sY(AISLE), w2sX(-30) - w2sX(30), (AISLE - 0) * view.scale);
+
+  drawBays();
+  drawCones();
+  drawStart();
+
+  routes.forEach((route, ri) => drawRoute(route, ri));
+  drawCompass();
+  updateStatus();
+}
+
+function drawGrid() {
+  const steps = [1, 2, 5, 10, 20, 50];
+  let step = steps.find(s => s * view.scale >= 45) || 50;
+  ctx.lineWidth = 1;
+  const x0 = s2wX(0), x1 = s2wX(W), zTop = s2wY(0), zBot = s2wY(H);
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.beginPath();
+  for (let x = Math.floor(Math.min(x0, x1) / step) * step; x <= Math.max(x0, x1); x += step) {
+    const sx = w2sX(x);
+    ctx.moveTo(sx, 0); ctx.lineTo(sx, H);
+  }
+  for (let z = Math.floor(Math.min(zTop, zBot) / step) * step; z <= Math.max(zTop, zBot); z += step) {
+    const sy = w2sY(z);
+    ctx.moveTo(0, sy); ctx.lineTo(W, sy);
+  }
+  ctx.stroke();
+  // оси
+  ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+  ctx.beginPath();
+  ctx.moveTo(w2sX(0), 0); ctx.lineTo(w2sX(0), H);
+  ctx.moveTo(0, w2sY(0)); ctx.lineTo(W, w2sY(0));
+  ctx.stroke();
+}
+
+function rectW(xc, zc, w, l) {
+  return { x1: w2sX(xc + w / 2), y1: w2sY(zc + l / 2), x2: w2sX(xc - w / 2), y2: w2sY(zc - l / 2) };
+}
+function fillRectW(r, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(Math.min(r.x1, r.x2), Math.min(r.y1, r.y2), Math.abs(r.x2 - r.x1), Math.abs(r.y2 - r.y1));
+}
+
+function drawBays() {
+  ctx.lineWidth = Math.max(1.5, 0.12 * view.scale);
+  for (const bay of BAYS) {
+    if (bay.par) {
+      const r1 = rectW(bay.xc, PAR_ZC + PAR.w / 2, PAR.l, 0.12);
+      fillRectW(r1, '#e8e8e8');
+      fillRectW(rectW(bay.xc - PAR.l / 2, PAR_ZC, 0.12, PAR.w), '#e8e8e8');
+      fillRectW(rectW(bay.xc + PAR.l / 2, PAR_ZC, 0.12, PAR.w), '#e8e8e8');
+      if (bayOccupied(bay.id)) {
+        fillRectW(rectW(bay.xc, PAR_ZC, 4.4, 1.8), bay.id === 10 ? '#9e9e9e' : '#c0392b');
+      }
+    } else {
+      const zc = (bay.zE + bay.zB) / 2;
+      fillRectW(rectW(bay.xc - BAY.w / 2, zc, 0.12, BAY.l), '#e8e8e8');
+      fillRectW(rectW(bay.xc + BAY.w / 2, zc, 0.12, BAY.l), '#e8e8e8');
+      fillRectW(rectW(bay.xc, bay.zB, BAY.w, 0.12), '#e8e8e8');
+      fillRectW(rectW(bay.xc, bay.zB + Math.sign(bay.zB - bay.zE) * 0.1, BAY.w, 0.2), '#8a8a8a');
+      if (bayOccupied(bay.id)) {
+        const cols = { 1: '#f2c200', 3: '#f5f5f5', 6: '#2e5fa8', 8: '#4a4f55' };
+        fillRectW(rectW(bay.xc, zc, 1.8, 4.4), cols[bay.id] || '#9e9e9e');
+      }
+    }
+  }
+  // бордюр дальней стороны параллельной парковки
+  fillRectW(rectW(0, PAR_ZC - PAR.w / 2, PAR_COUNT * (PAR.l + PAR.gap) + 0.4, 0.2), '#9a9a9a');
+
+  // подписи
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  ctx.font = '600 11px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('РЯД A', w2sX(0), w2sY(-BAY.l / 2) + 4);
+  ctx.fillText('РЯД B', w2sX(0), w2sY(AISLE + BAY.l / 2) + 4);
+  ctx.fillText('ПАРАЛЛЕЛЬНАЯ ПАРКОВКА', w2sX(0), w2sY(PAR_ZC) + 4);
+  ctx.fillText('ПРОЕЗД', w2sX(22), w2sY(AISLE / 2) + 4);
+}
+
+function drawCones() {
+  for (const c of map.cones) {
+    const sx = w2sX(c.x), sy = w2sY(c.z);
+    const rr = Math.max(4, CONE_R * view.scale);
+    ctx.fillStyle = '#ff7a1a';
+    ctx.beginPath();
+    ctx.arc(sx, sy, rr, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#b35410';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+}
+
+function drawStart() {
+  const s = map.start;
+  const sx = w2sX(s.x), sy = w2sY(s.z);
+  const w = 1.8 * view.scale, l = 4.4 * view.scale;
+  ctx.save();
+  ctx.translate(sx, sy);
+  ctx.rotate(Math.PI); // heading 0 = +Z = вверх; рисуем машину «носом вверх»
+  ctx.fillStyle = '#2d6cdf';
+  roundRect(-w / 2, -l / 2, w, l, Math.min(6, w / 4));
+  ctx.fill();
+  ctx.strokeStyle = '#8fb7f0';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.restore();
+  ctx.fillStyle = '#8fb7f0';
+  ctx.font = '700 11px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('СТАРТ', sx, sy - l / 2 - 6);
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function drawRoute(route, ri) {
+  const sel = ri === curRoute;
+  const lineCol = sel ? 'rgba(80,220,255,0.9)' : 'rgba(150,160,175,0.35)';
+  ctx.strokeStyle = lineCol;
+  ctx.lineWidth = sel ? 2.5 : 1.5;
+  ctx.setLineDash([8, 6]);
+  ctx.beginPath();
+  route.pts.forEach((pt, pi) => {
+    const sx = w2sX(pt.x), sy = w2sY(pt.z);
+    if (pi === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+  });
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  route.pts.forEach((pt, pi) => {
+    const sx = w2sX(pt.x), sy = w2sY(pt.z);
+    const rr = Math.max(6, pt.r * view.scale);
+    const isCur = sel && pi === curPt;
+    ctx.beginPath();
+    ctx.arc(sx, sy, rr, 0, Math.PI * 2);
+    ctx.fillStyle = pt.stop ? 'rgba(255,213,79,0.16)' : 'rgba(102,255,102,0.13)';
+    ctx.fill();
+    ctx.setLineDash(pt.stop ? [6, 4] : []);
+    ctx.strokeStyle = isCur ? '#ffffff' : (pt.stop ? 'rgba(255,213,79,0.8)' : 'rgba(102,255,102,0.7)');
+    ctx.lineWidth = isCur ? 2.5 : 1.5;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(sx, sy, 3, 0, Math.PI * 2);
+    ctx.fillStyle = isCur ? '#ffffff' : lineCol;
+    ctx.fill();
+    ctx.fillStyle = isCur ? '#ffffff' : (sel ? 'rgba(200,230,255,0.9)' : 'rgba(150,160,175,0.5)');
+    ctx.font = '700 12px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(String(pi + 1), sx, sy - rr - 4);
+  });
+}
+
+function drawCompass() {
+  const cx = W - 46, cy = 56;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.fillStyle = 'rgba(24,28,34,0.85)';
+  ctx.beginPath(); ctx.arc(0, 0, 26, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#465060'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.fillStyle = '#ff6b6b';
+  ctx.beginPath(); ctx.moveTo(0, -20); ctx.lineTo(5, 4); ctx.lineTo(-5, 4); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#9fb0c3';
+  ctx.beginPath(); ctx.moveTo(0, 20); ctx.lineTo(5, 4); ctx.lineTo(-5, 4); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#dfe6ee';
+  ctx.font = '700 10px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('ВПЕРЁД', 0, -30);
+  ctx.restore();
+}
+
+function updateStatus() {
+  document.getElementById('stScale').textContent = view.scale.toFixed(1);
+}
+
+// ==== тосты ====
+const toastEl = document.getElementById('toast');
+let toastTimer = 0;
+function toast(msg, isErr) {
+  toastEl.textContent = msg;
+  toastEl.className = 'toast show' + (isErr ? ' err' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toastEl.className = 'toast'; }, 2600);
+}
+
+// ==== панель маршрутов ====
+function renderRouteList() {
+  const box = document.getElementById('routeList');
+  box.innerHTML = '';
+  routes.forEach((route, ri) => {
+    const div = document.createElement('div');
+    div.className = 'routeItem' + (ri === curRoute ? ' sel' : '');
+    const nm = document.createElement('span');
+    nm.className = 'nm';
+    nm.textContent = route.name;
+    const cnt = document.createElement('span');
+    cnt.className = 'cnt';
+    cnt.textContent = route.pts.length + ' т.';
+    const ren = document.createElement('button');
+    ren.type = 'button'; ren.textContent = '✎'; ren.title = 'Переименовать';
+    ren.addEventListener('click', e => { e.stopPropagation(); renameRoute(ri); });
+    const del = document.createElement('button');
+    del.type = 'button'; del.textContent = '✕'; del.title = 'Удалить маршрут';
+    del.addEventListener('click', e => { e.stopPropagation(); deleteRoute(ri); });
+    div.append(nm, cnt, ren, del);
+    div.addEventListener('click', () => { curRoute = ri; curPt = -1; syncProps(); renderRouteList(); draw(); });
+    box.appendChild(div);
+  });
+}
+
+function renameRoute(ri) {
+  const name = prompt('Название маршрута:', routes[ri].name);
+  if (name === null) return;
+  routes[ri].name = name.trim() || routes[ri].name;
+  saveLocal(); renderRouteList(); draw();
+}
+
+function deleteRoute(ri) {
+  if (!confirm('Удалить маршрут «' + routes[ri].name + '»?')) return;
+  routes.splice(ri, 1);
+  if (!routes.length) routes.push({ name: 'Новый маршрут', pts: [] });
+  curRoute = Math.min(curRoute, routes.length - 1);
+  curPt = -1;
+  saveLocal(); syncProps(); renderRouteList(); draw();
+}
+
+document.getElementById('btnAddRoute').addEventListener('click', () => {
+  routes.push({ name: 'Маршрут №' + (routes.length + 1), pts: [] });
+  curRoute = routes.length - 1; curPt = -1;
+  saveLocal(); syncProps(); renderRouteList(); draw();
+  toast('Маршрут создан — добавляйте точки инструментом «📍 Точка»');
+});
+
+// ==== свойства точки ====
+const ptName = document.getElementById('ptName');
+const ptR = document.getElementById('ptR');
+const ptStop = document.getElementById('ptStop');
+
+function curPoint() {
+  const r = routes[curRoute];
+  if (!r || curPt < 0 || curPt >= r.pts.length) return null;
+  return r.pts[curPt];
+}
+
+function syncProps() {
+  const pt = curPoint();
+  const box = document.getElementById('ptProps');
+  if (!pt) { box.classList.add('off'); return; }
+  box.classList.remove('off');
+  ptName.value = pt.name || '';
+  ptR.value = pt.r;
+  ptStop.checked = !!pt.stop;
+}
+
+ptName.addEventListener('input', () => { const pt = curPoint(); if (pt) { pt.name = ptName.value; saveLocal(); } });
+ptR.addEventListener('input', () => {
+  const pt = curPoint(); if (!pt) return;
+  const v = parseFloat(ptR.value);
+  if (isFinite(v)) { pt.r = Math.min(30, Math.max(1, v)); saveLocal(); draw(); }
+});
+ptStop.addEventListener('change', () => { const pt = curPoint(); if (pt) { pt.stop = ptStop.checked; saveLocal(); draw(); } });
+
+document.getElementById('ptUp').addEventListener('click', () => movePt(-1));
+document.getElementById('ptDown').addEventListener('click', () => movePt(1));
+document.getElementById('ptDel').addEventListener('click', deletePt);
+
+function movePt(dir) {
+  const r = routes[curRoute];
+  const j = curPt + dir;
+  if (!r || curPt < 0 || j < 0 || j >= r.pts.length) return;
+  const t = r.pts[curPt]; r.pts[curPt] = r.pts[j]; r.pts[j] = t;
+  curPt = j;
+  saveLocal(); syncProps(); draw();
+}
+
+function deletePt() {
+  const r = routes[curRoute];
+  if (!r || curPt < 0) return;
+  r.pts.splice(curPt, 1);
+  curPt = -1;
+  saveLocal(); syncProps(); draw();
+}
+
+// ==== инструменты ====
+const toolBtns = {
+  select: document.getElementById('toolSelect'),
+  route: document.getElementById('toolRoute'),
+  cone: document.getElementById('toolCone'),
+  start: document.getElementById('toolStart')
+};
+const toolNames = { select: 'Выбор', route: 'Точка маршрута', cone: 'Конус', start: 'Старт' };
+function setTool(t) {
+  tool = t;
+  for (const k in toolBtns) toolBtns[k].classList.toggle('active', k === t);
+  document.getElementById('stMode').textContent = 'Режим: ' + toolNames[t];
+  cv.style.cursor = t === 'select' ? 'default' : 'crosshair';
+}
+for (const k in toolBtns) toolBtns[k].addEventListener('click', () => setTool(k));
+document.addEventListener('keydown', e => {
+  const act = document.activeElement;
+  if (act && (act.tagName === 'INPUT' || act.tagName === 'TEXTAREA')) return;
+  if (e.code === 'KeyV') setTool('select');
+  else if (e.code === 'KeyR') setTool('route');
+  else if (e.code === 'KeyC') setTool('cone');
+  else if (e.code === 'KeyS') setTool('start');
+  else if (e.code === 'Escape') { curPt = -1; syncProps(); draw(); }
+  else if (e.code === 'Delete' || e.code === 'Backspace') deletePt();
+  else if (e.code === 'Equal' || e.code === 'NumpadAdd') zoomAt(W / 2, H / 2, 1.2);
+  else if (e.code === 'Minus' || e.code === 'NumpadSubtract') zoomAt(W / 2, H / 2, 1 / 1.2);
+});
+
+// ==== мышь и тач ====
+let drag = null; // { kind, idx, route, pt, offX, offZ, panning, lastSX, lastSY, moved }
+
+function hitTest(sx, sy) {
+  const tol = 14;
+  for (let ri = 0; ri < routes.length; ri++) {
+    const pts = routes[ri].pts;
+    for (let pi = pts.length - 1; pi >= 0; pi--) {
+      const d = Math.hypot(w2sX(pts[pi].x) - sx, w2sY(pts[pi].z) - sy);
+      if (d <= Math.max(tol, pts[pi].r * view.scale * 0.25) || d <= tol) return { kind: 'pt', ri, pi };
+    }
+  }
+  for (let ci = map.cones.length - 1; ci >= 0; ci--) {
+    if (Math.hypot(w2sX(map.cones[ci].x) - sx, w2sY(map.cones[ci].z) - sy) <= tol) return { kind: 'cone', ci };
+  }
+  if (Math.hypot(w2sX(map.start.x) - sx, w2sY(map.start.z) - sy) <= tol) return { kind: 'start' };
+  if (tool === 'select') {
+    const wx = s2wX(sx), wz = s2wY(sy);
+    for (const bay of BAYS) {
+      if (bay.par) {
+        if (Math.abs(wx - bay.xc) < PAR.l / 2 && Math.abs(wz - PAR_ZC) < PAR.w / 2) return { kind: 'bay', id: bay.id };
+      } else {
+        const zc = (bay.zE + bay.zB) / 2;
+        if (Math.abs(wx - bay.xc) < BAY.w / 2 && Math.abs(wz - zc) < BAY.l / 2) return { kind: 'bay', id: bay.id };
+      }
+    }
+  }
+  return null;
+}
+
+cv.addEventListener('pointerdown', e => {
+  if (e.button === 1 || e.button === 2) { drag = { panning: true, lastSX: e.clientX, lastSY: e.clientY }; return; }
+  const sx = e.clientX, sy = e.clientY;
+  const hit = hitTest(sx, sy);
+  if (hit && hit.kind === 'pt') {
+    curRoute = hit.ri; curPt = hit.pi;
+    const pt = routes[hit.ri].pts[hit.pi];
+    drag = { kind: 'pt', ri: hit.ri, pi: hit.pi, offX: pt.x - s2wX(sx), offZ: pt.z - s2wY(sy) };
+    syncProps(); renderRouteList();
+  } else if (hit && hit.kind === 'cone') {
+    drag = { kind: 'cone', ci: hit.ci, offX: map.cones[hit.ci].x - s2wX(sx), offZ: map.cones[hit.ci].z - s2wY(sy) };
+  } else if (hit && hit.kind === 'start') {
+    drag = { kind: 'start', offX: map.start.x - s2wX(sx), offZ: map.start.z - s2wY(sy) };
+  } else if (hit && hit.kind === 'bay') {
+    toggleBay(hit.id);
+    drag = null;
+    return;
+  } else {
+    if (tool === 'route') {
+      const r = routes[curRoute];
+      const wx = snap(s2wX(sx)), wz = snap(s2wY(sy));
+      r.pts.push({ x: wx, z: wz, r: 5, name: 'Точка ' + (r.pts.length + 1) });
+      curPt = r.pts.length - 1;
+      drag = { kind: 'pt', ri: curRoute, pi: curPt, offX: 0, offZ: 0 };
+      saveLocal(); syncProps(); renderRouteList();
+    } else if (tool === 'cone') {
+      map.cones.push({ x: snap(s2wX(sx)), z: snap(s2wY(sy)) });
+      drag = { kind: 'cone', ci: map.cones.length - 1, offX: 0, offZ: 0 };
+      saveLocal();
+    } else if (tool === 'start') {
+      map.start.x = snap(s2wX(sx)); map.start.z = snap(s2wY(sy));
+      drag = { kind: 'start', offX: 0, offZ: 0 };
+      saveLocal();
+    } else {
+      drag = { panning: true, lastSX: sx, lastSY: sy };
+    }
+  }
+  cv.setPointerCapture(e.pointerId);
+  draw();
+});
+
+cv.addEventListener('pointermove', e => {
+  const sx = e.clientX, sy = e.clientY;
+  document.getElementById('stX').textContent = snap(s2wX(sx)).toFixed(1);
+  document.getElementById('stZ').textContent = snap(s2wY(sy)).toFixed(1);
+  if (!drag) return;
+  if (drag.panning) {
+    view.wx -= (sx - drag.lastSX) / view.scale;
+    view.wz += (sy - drag.lastSY) / view.scale;
+    drag.lastSX = sx; drag.lastSY = sy;
+  } else if (drag.kind === 'pt') {
+    const pt = routes[drag.ri].pts[drag.pi];
+    pt.x = snap(s2wX(sx) + drag.offX);
+    pt.z = snap(s2wY(sy) + drag.offZ);
+    if (drag.ri === curRoute && drag.pi === curPt) syncProps();
+  } else if (drag.kind === 'cone') {
+    map.cones[drag.ci].x = snap(s2wX(sx) + drag.offX);
+    map.cones[drag.ci].z = snap(s2wY(sy) + drag.offZ);
+  } else if (drag.kind === 'start') {
+    map.start.x = snap(s2wX(sx) + drag.offX);
+    map.start.z = snap(s2wY(sy) + drag.offZ);
+  }
+  draw();
+});
+
+function endDrag() { drag = null; saveLocal(); }
+cv.addEventListener('pointerup', endDrag);
+cv.addEventListener('pointercancel', endDrag);
+cv.addEventListener('contextmenu', e => e.preventDefault());
+
+function snap(v) { return Math.round(v * 10) / 10; }
+
+function zoomAt(sx, sy, factor) {
+  const wx = s2wX(sx), wz = s2wY(sy);
+  view.scale = Math.min(60, Math.max(3, view.scale * factor));
+  view.wx = wx - (W / 2 - sx) / view.scale;
+  view.wz = wz - (H / 2 - sy) / view.scale;
+  draw();
+}
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.12 : 1 / 1.12);
+}, { passive: false });
+
+document.getElementById('btnZoomIn').addEventListener('click', () => zoomAt(W / 2, H / 2, 1.25));
+document.getElementById('btnZoomOut').addEventListener('click', () => zoomAt(W / 2, H / 2, 1 / 1.25));
+document.getElementById('btnFit').addEventListener('click', fitView);
+document.getElementById('btnReset').addEventListener('click', () => {
+  if (!confirm('Вернуть карту и маршруты по умолчанию? Несохранённые изменения будут потеряны.')) return;
+  map = JSON.parse(JSON.stringify(DEFAULT_MAP));
+  routes = JSON.parse(JSON.stringify(DEFAULT_ROUTES));
+  curRoute = 0; curPt = -1;
+  saveLocal(); syncProps(); renderRouteList(); fitView();
+  toast('Восстановлены значения по умолчанию');
+});
+
+// ==== экспорт / импорт ====
+function download(name, text) {
+  const blob = new Blob([text], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+function routesForSim() {
+  return JSON.stringify(routes.map(r => ({
+    name: r.name,
+    pts: r.pts.map(p => { const o = { x: p.x, z: p.z, r: p.r, name: p.name }; if (p.stop) o.stop = true; return o; })
+  })), null, 2);
+}
+
+document.getElementById('btnExportRoutes').addEventListener('click', () => {
+  download('routes.json', routesForSim());
+  toast('routes.json скачан — загрузите его в симуляторе (ЭКЗАМЕН → ⬆)');
+});
+
+document.getElementById('btnExportMap').addEventListener('click', () => {
+  const out = {
+    format: 'cyty-map-v1',
+    start: { x: map.start.x, z: map.start.z, h: map.start.h || 0 },
+    cones: map.cones.map(c => ({ x: c.x, z: c.z })),
+    bays: map.bays.slice().sort((a, b) => a - b)
+  };
+  download('map.json', JSON.stringify(out, null, 2));
+  toast('map.json скачан');
+});
+
+document.getElementById('btnImport').addEventListener('click', () => document.getElementById('fileImport').click());
+document.getElementById('fileImport').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (Array.isArray(data)) {
+        importRoutes(data);
+      } else if (data && (Array.isArray(data.cones) || data.start)) {
+        importMap(data);
+      } else if (data && Array.isArray(data.routes)) {
+        importRoutes(data.routes);
+        if (data.map) importMap(data.map);
+      } else {
+        throw new Error('Неизвестный формат файла');
+      }
+    } catch (err) {
+      toast('Ошибка импорта: ' + err.message, true);
+    }
+  };
+  reader.readAsText(f);
+  e.target.value = '';
+});
+
+function importRoutes(data) {
+  const clean = data.map((r, i) => {
+    if (!r || !Array.isArray(r.pts) || !r.pts.length) throw new Error('маршрут ' + (i + 1) + ': нет точек');
+    return {
+      name: String(r.name || ('Маршрут №' + (i + 1))),
+      pts: r.pts.map((p, j) => {
+        const x = +p.x, z = +p.z;
+        if (!isFinite(x) || !isFinite(z)) throw new Error('маршрут ' + (i + 1) + ', точка ' + (j + 1) + ': координаты');
+        return { x, z, r: Math.min(30, Math.max(1, +p.r || 5)), name: String(p.name || ('Точка ' + (j + 1))), stop: !!p.stop };
+      })
+    };
+  });
+  routes.length = 0;
+  routes.push(...clean);
+  curRoute = 0; curPt = -1;
+  saveLocal(); syncProps(); renderRouteList(); fitView();
+  toast('Импортировано маршрутов: ' + clean.length);
+}
+
+function importMap(data) {
+  if (data.start && isFinite(+data.start.x) && isFinite(+data.start.z)) {
+    map.start = { x: +data.start.x, z: +data.start.z, h: +data.start.h || 0 };
+  }
+  if (Array.isArray(data.cones)) {
+    map.cones = data.cones.filter(c => c && isFinite(+c.x) && isFinite(+c.z)).map(c => ({ x: +c.x, z: +c.z }));
+  }
+  if (Array.isArray(data.bays)) {
+    map.bays = data.bays.filter(v => Number.isInteger(v));
+  }
+  saveLocal(); fitView();
+  toast('Карта импортирована');
+}
+
+// ==== старт ====
+resize();
+setTool('select');
+renderRouteList();
+syncProps();
+fitView();
+</script>
+</body>
+</html>
