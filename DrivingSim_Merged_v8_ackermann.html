@@ -62,8 +62,10 @@
   /* тач-управление: педали справа и кнопки фич слева (видны на тачскрин-устройствах) */
   #dsTouchPedals{position:fixed;right:14px;bottom:200px;z-index:10001;display:none;flex-direction:column;gap:12px;pointer-events:none}
   #dsTouchActions{position:fixed;left:14px;bottom:218px;z-index:10001;display:none;gap:8px;pointer-events:none}
+  #dsGearSelector{position:fixed;left:14px;bottom:270px;z-index:10001;display:none;gap:6px;pointer-events:none}
   body.ds-touch #dsTouchPedals{display:flex}
   body.ds-touch #dsTouchActions{display:flex}
+  body.ds-touch #dsGearSelector{display:flex}
   .ds-touch-btn{pointer-events:auto;border:2px solid #647989;background:rgba(38,51,59,.72);color:#eaf2f6;
     font:bold 14px system-ui;padding:0;touch-action:none;-webkit-tap-highlight-color:transparent;
     user-select:none;-webkit-user-select:none;display:flex;align-items:center;justify-content:center;cursor:pointer}
@@ -71,6 +73,9 @@
   .ds-act{width:48px;height:42px;border-radius:8px}
   .ds-touch-btn.ds-pressed{background:rgba(183,122,22,.92);border-color:#ffd54f}
   #dsBtnBrake.ds-pressed{background:rgba(178,34,34,.9);border-color:#ff8a80}
+  .ds-gear{width:40px;height:40px;font-size:15px}
+  .ds-gear.ds-gear-active{background:rgba(46,125,80,.92);border-color:#7bd88f}
+  .ds-act.ds-on{background:rgba(46,125,80,.92);border-color:#7bd88f}
 </style>
 
 </head>
@@ -132,7 +137,7 @@
   L — фары<br>
   H — скрыть/показать панели<br>
   C — виды камеры<br>
-  Тачскрин: педали ГАЗ/ТОРМОЗ справа, кнопки I/РН/B/L/H слева, руль — перетаскивание по экрану<br>
+  Тачскрин: педали ГАЗ/ТОРМОЗ справа, селектор передач и кнопки I/РН/B/L/H слева, руль — перетаскивание по экрану<br>
   Backspace — начать заново<br>
   Бокс 2,5 × 5,3 м, проезд 6 м (предварительно)<br>
   Параллельно: 6,0 × 2,2 м (предварительно)
@@ -2397,23 +2402,60 @@ cam.updateMatrixWorld(true);
   const actions = document.createElement('div');
   actions.id = 'dsTouchActions';
   const acts = [
-    ['I', 'Зажигание (I)', 'KeyI'],
-    ['РН', 'Ручник (Space)', 'Space'],
-    ['B', 'Ремень (B)', 'KeyB'],
-    ['L', 'Фары (L)', 'KeyL'],
-    ['H', 'Скрыть панели (H)', 'KeyH'],
-    ['⟲', 'Начать заново (Backspace)', 'Backspace']
+    ['I', 'Зажигание (I)', 'KeyI', () => engineRunning],
+    ['РН', 'Ручник (Space)', 'Space', () => handbrakeActive],
+    ['B', 'Ремень (B)', 'KeyB', () => beltFastened],
+    ['L', 'Фары (L)', 'KeyL', () => lightsOn],
+    ['H', 'Скрыть панели (H)', 'KeyH', () => uiHidden],
+    ['⟲', 'Начать заново (Backspace)', 'Backspace', null]
   ];
-  for (const [label, title, code] of acts) {
+  const stateBtns = [];
+  for (const [label, title, code, stateFn] of acts) {
     const b = mkBtn('ds-act', label, title);
     b.addEventListener('pointerdown', e => {
       e.preventDefault();
       window.dispatchEvent(new KeyboardEvent('keydown', { code }));
       window.dispatchEvent(new KeyboardEvent('keyup', { code }));
     });
+    if (stateFn) stateBtns.push([b, stateFn]);
     actions.appendChild(b);
   }
   document.body.appendChild(actions);
+
+  // селектор передач (имитация рычага АКПП): R / N / D / 1 / 2 / 3
+  const sel = document.createElement('div');
+  sel.id = 'dsGearSelector';
+  const gearItems = [
+    ['R', 'KeyR', 'Задний ход (R)'],
+    ['N', 'KeyN', 'Нейтраль (N)'],
+    ['D', 'KeyF', 'Автомат D (F)'],
+    ['1', 'Digit1', '1-я передача (1)'],
+    ['2', 'Digit2', '2-я передача (2)'],
+    ['3', 'Digit3', '3-я передача (3)']
+  ];
+  const gearBtns = {};
+  for (const [label, code, title] of gearItems) {
+    const b = mkBtn('ds-gear', label, title);
+    b.dataset.gear = label;
+    b.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      window.dispatchEvent(new KeyboardEvent('keydown', { code }));
+      window.dispatchEvent(new KeyboardEvent('keyup', { code }));
+    });
+    gearBtns[label] = b;
+    sel.appendChild(b);
+  }
+  document.body.appendChild(sel);
+
+  const oldUpdateHud = updateHud;
+  updateHud = function() {
+    oldUpdateHud();
+    for (const label in gearBtns) {
+      gearBtns[label].classList.toggle('ds-gear-active', gear === label);
+    }
+    gearBtns.D.textContent = gear === 'D' ? 'D' + autoGear : 'D';
+    for (const [b, stateFn] of stateBtns) b.classList.toggle('ds-on', stateFn());
+  };
 })();
 
 // Старт основного цикла
