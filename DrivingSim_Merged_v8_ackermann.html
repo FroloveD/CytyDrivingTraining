@@ -129,6 +129,8 @@
   <input id="sideMirrorSize" type="range" min="110" max="400" step="10" value="250" style="width: 200px">
   <br>Руль (размер): <b id="wheelSizeVal">165</b> px<br>
   <input id="wheelSize" type="range" min="90" max="320" step="5" value="165" style="width: 200px">
+  <br><button type="button" id="mapLoad" style="margin-top:6px;padding:4px 8px;cursor:pointer">📂 Загрузить карту (JSON)</button>
+  <input type="file" id="mapFile" accept=".json,application/json" style="display:none">
 </div>
 
 <div id="wheelHud" class="panel" style="left: 12px; bottom: 12px; padding: 6px;">
@@ -902,15 +904,33 @@ for (const bay of bays) {
     z1: Math.min(bay.zB, bay.zB + sign * 0.2), z2: Math.max(bay.zB, bay.zB + sign * 0.2)
   });
 
-  // припаркованный автомобиль в занятом боксе
-  if (bay.occupied) {
-    const d = DIM[PARKED_MODEL[bay.id]];
+  // припаркованный автомобиль в боксе (машина есть в каждом боксе, видимость = занятость)
+  {
+    const d = DIM[PARKED_MODEL[bay.id] || 'ceed'];
     const lenP = d.rear + d.L + d.front;
     const centerP = (d.L + d.front - d.rear) / 2;
-    const pc = makeCar(PARKED_COLOR[bay.id], d);
+    const pc = makeCar(PARKED_COLOR[bay.id] || 0x9e9e9e, d);
     pc.position.set(bay.xc, 0, zc - centerP);
+    pc.visible = bay.occupied;
     scene.add(pc);
-    blocks.push({ x1: bay.xc - d.w / 2, x2: bay.xc + d.w / 2, z1: zc - lenP / 2, z2: zc + lenP / 2 });
+    bay.parkedCar = pc;
+    bay.parkedBlock = { x1: bay.xc - d.w / 2, x2: bay.xc + d.w / 2, z1: zc - lenP / 2, z2: zc + lenP / 2, parkedBay: bay.id };
+    if (bay.occupied) blocks.push(bay.parkedBlock);
+  }
+}
+
+function applyBays(occupiedIds) {
+  const set = new Set(occupiedIds);
+  for (const bay of bays) {
+    const occ = set.has(bay.id);
+    if (occ === bay.occupied) continue;
+    bay.occupied = occ;
+    if (bay.parkedCar) bay.parkedCar.visible = occ;
+    if (bay.parkedBlock) {
+      const i = blocks.indexOf(bay.parkedBlock);
+      if (occ && i === -1) blocks.push(bay.parkedBlock);
+      if (!occ && i !== -1) blocks.splice(i, 1);
+    }
   }
 }
 
@@ -930,15 +950,18 @@ for (let i = 0; i < PAR_COUNT; i++) {
     addBox(0.12, 0.02, PAR.w, xc - PAR.l / 2, 0.01, PAR_ZC, 0xffffff),
     addBox(0.12, 0.02, PAR.w, xc + PAR.l / 2, 0.01, PAR_ZC, 0xffffff)
   ];
-  if (bay.occupied) {
-    const d = DIM[PAR_MODEL[bay.id]];
+  {
+    const d = DIM[PAR_MODEL[bay.id] || 'ceed'];
     const lenP = d.rear + d.L + d.front;
     const centerP = (d.L + d.front - d.rear) / 2;
-    const pc = makeCar(PAR_COLOR[bay.id], d);
+    const pc = makeCar(PAR_COLOR[bay.id] || 0x9e9e9e, d);
     pc.rotation.y = Math.PI / 2;               // вдоль оси X
     pc.position.set(xc - centerP, 0, PAR_ZC);
+    pc.visible = bay.occupied;
     scene.add(pc);
-    blocks.push({ x1: xc - lenP / 2, x2: xc + lenP / 2, z1: PAR_ZC - d.w / 2, z2: PAR_ZC + d.w / 2 });
+    bay.parkedCar = pc;
+    bay.parkedBlock = { x1: xc - lenP / 2, x2: xc + lenP / 2, z1: PAR_ZC - d.w / 2, z2: PAR_ZC + d.w / 2, parkedBay: bay.id };
+    if (bay.occupied) blocks.push(bay.parkedBlock);
   }
 }
 // бордюр с дальней стороны ряда
@@ -953,11 +976,19 @@ const cones = [
   { x: -6, z: AISLE + 0.5 }, { x: 6, z: AISLE + 0.5 },
   { x: -14, z: -9 }, { x: 14, z: -9 }
 ];
-for (const c of cones) {
-  const cone = new THREE.Mesh(new THREE.ConeGeometry(CONE_R, 0.6, 12), mat(0xff7a1a));
-  cone.position.set(c.x, 0.3, c.z);
-  scene.add(cone);
+const coneMeshes = [];
+function rebuildCones() {
+  for (const m of coneMeshes) scene.remove(m);
+  coneMeshes.length = 0;
+  for (const c of cones) {
+    if (c.osm) continue;
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(CONE_R, 0.6, 12), mat(0xff7a1a));
+    cone.position.set(c.x, 0.3, c.z);
+    scene.add(cone);
+    coneMeshes.push(cone);
+  }
 }
+rebuildCones();
 
 // наш автомобиль
 const car = makeCar(0x2d6cdf, DIM.ceed, { sign: true, driver: true });
@@ -1455,8 +1486,10 @@ function refreshStatus(bay) {
   if (text !== lastStatusText) { statusEl.textContent = text; lastStatusText = text; }
 }
 
+let mapStart = null;   // переопределение точки старта из map.json
+
 function reset() {
-  Object.assign(state, START, { v: 0, steer: 0 });
+  Object.assign(state, mapStart || START, { v: 0, steer: 0 });
   collisions = 0; elapsed = 0; holdT = 0; finished = false; contact = false; score = 0;
   finishedBay = null;
   wheelSpin = 0;
@@ -1470,6 +1503,40 @@ function reset() {
   bays.forEach(b => b.lines.forEach(m => m.material.color.set(0xffffff)));
   updateCamera(1);
 }
+
+document.getElementById('mapLoad').addEventListener('click', () => document.getElementById('mapFile').click());
+document.getElementById('mapFile').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('ожидался объект карты');
+      if (data.start != null) {
+        const x = +data.start.x, z = +data.start.z, h = +data.start.h || 0;
+        if (!isFinite(x) || !isFinite(z)) throw new Error('старт: некорректные координаты');
+        mapStart = { x: Math.max(-200, Math.min(200, x)), z: Math.max(-200, Math.min(200, z)), h: isFinite(h) ? h : 0 };
+      }
+      if (Array.isArray(data.cones)) {
+        const fresh = data.cones.filter(c => c && isFinite(+c.x) && isFinite(+c.z)).map(c => ({ x: +c.x, z: +c.z }));
+        for (let i = cones.length - 1; i >= 0; i--) if (!cones[i].osm) cones.splice(i, 1);
+        for (const c of fresh) cones.push(c);
+        rebuildCones();
+      }
+      if (Array.isArray(data.bays)) {
+        const ids = data.bays.filter(v => Number.isInteger(v) && v >= 1 && v <= 2 * COLS + PAR_COUNT);
+        applyBays(ids);
+      }
+      reset();
+      alert('Карта загружена: конусов ' + cones.filter(c => !c.osm).length + ', боксов занято ' + bays.filter(b => b.occupied).length + (mapStart ? ', старт перемещён' : ''));
+    } catch (err) {
+      alert('Ошибка загрузки карты: ' + err.message);
+    }
+  };
+  reader.readAsText(f);
+  e.target.value = '';
+});
 
 // ================= камера =================
 const camTarget = new THREE.Vector3();

@@ -62,6 +62,10 @@
   <button type="button" id="toolStart" class="tool" title="Поставить точку старта (S)">🚩 Старт</button>
   <span class="sep"></span>
   <button type="button" id="btnAddRoute">＋ Маршрут</button>
+  <button type="button" id="btnDupRoute" title="Дублировать выбранный маршрут">⧉ Копия</button>
+  <span class="sep"></span>
+  <button type="button" id="btnUndo" title="Отменить (Ctrl+Z)">↶</button>
+  <button type="button" id="btnRedo" title="Вернуть (Ctrl+Y)">↷</button>
   <span class="sep"></span>
   <button type="button" id="btnExportRoutes" title="Скачать routes.json для симулятора">⬇ Маршруты</button>
   <button type="button" id="btnExportMap" title="Скачать map.json">⬇ Карта</button>
@@ -94,8 +98,10 @@
     Клик «📍 Точка» — добавить точку в выбранный маршрут.<br>
     Перетаскивание — двигать точку/конус/старт.<br>
     Клик по полю в режиме «✥ Выбор» — переключить занятость бокса.<br>
+    Клик «📍 Точка» по линии маршрута — вставить точку между соседними.<br>
+    Клик «▲ Конус» по существующему конусу — удалить его.<br>
     Колесо — масштаб, пустое место — панорама.<br>
-    Delete — удалить точку, Esc — снять выбор.
+    Delete — удалить точку, Esc — снять выбор, стрелки — двигать точку (0,5 м).
   </div>
 </div>
 
@@ -170,6 +176,26 @@ function saveLocal() {
   try { localStorage.setItem(LS_KEY, JSON.stringify({ map, routes })); } catch (e) { /* переполнение хранилища */ }
 }
 
+// ==== undo / redo ====
+const undoStack = [], redoStack = [];
+function snapshot() { return JSON.stringify({ map, routes }); }
+function pushUndo() {
+  undoStack.push(snapshot());
+  if (undoStack.length > 50) undoStack.shift();
+  redoStack.length = 0;
+}
+function restore(s) {
+  const d = JSON.parse(s);
+  map = d.map; routes = d.routes;
+  curRoute = Math.min(curRoute, routes.length - 1);
+  curPt = -1;
+  saveLocal(); syncProps(); renderRouteList(); draw();
+}
+function undo() { if (!undoStack.length) return; redoStack.push(snapshot()); restore(undoStack.pop()); }
+function redo() { if (!redoStack.length) return; undoStack.push(snapshot()); restore(redoStack.pop()); }
+document.getElementById('btnUndo').addEventListener('click', undo);
+document.getElementById('btnRedo').addEventListener('click', redo);
+
 // ==== холст и вид ====
 const cv = document.getElementById('cv');
 const ctx = cv.getContext('2d');
@@ -213,6 +239,7 @@ function allBays() {
 const BAYS = allBays();
 function bayOccupied(id) { return map.bays.indexOf(id) !== -1; }
 function toggleBay(id) {
+  pushUndo();
   const i = map.bays.indexOf(id);
   if (i === -1) map.bays.push(id); else map.bays.splice(i, 1);
   saveLocal(); draw();
@@ -437,7 +464,9 @@ function renderRouteList() {
     nm.textContent = route.name;
     const cnt = document.createElement('span');
     cnt.className = 'cnt';
-    cnt.textContent = route.pts.length + ' т.';
+    let len = 0;
+    for (let i = 1; i < route.pts.length; i++) len += Math.hypot(route.pts[i].x - route.pts[i - 1].x, route.pts[i].z - route.pts[i - 1].z);
+    cnt.textContent = route.pts.length + ' т.' + (len > 0 ? ' · ' + Math.round(len) + ' м' : '');
     const ren = document.createElement('button');
     ren.type = 'button'; ren.textContent = '✎'; ren.title = 'Переименовать';
     ren.addEventListener('click', e => { e.stopPropagation(); renameRoute(ri); });
@@ -453,12 +482,14 @@ function renderRouteList() {
 function renameRoute(ri) {
   const name = prompt('Название маршрута:', routes[ri].name);
   if (name === null) return;
+  pushUndo();
   routes[ri].name = name.trim() || routes[ri].name;
   saveLocal(); renderRouteList(); draw();
 }
 
 function deleteRoute(ri) {
   if (!confirm('Удалить маршрут «' + routes[ri].name + '»?')) return;
+  pushUndo();
   routes.splice(ri, 1);
   if (!routes.length) routes.push({ name: 'Новый маршрут', pts: [] });
   curRoute = Math.min(curRoute, routes.length - 1);
@@ -467,10 +498,23 @@ function deleteRoute(ri) {
 }
 
 document.getElementById('btnAddRoute').addEventListener('click', () => {
+  pushUndo();
   routes.push({ name: 'Маршрут №' + (routes.length + 1), pts: [] });
   curRoute = routes.length - 1; curPt = -1;
   saveLocal(); syncProps(); renderRouteList(); draw();
   toast('Маршрут создан — добавляйте точки инструментом «📍 Точка»');
+});
+
+document.getElementById('btnDupRoute').addEventListener('click', () => {
+  const src = routes[curRoute];
+  if (!src) return;
+  pushUndo();
+  const copy = JSON.parse(JSON.stringify(src));
+  copy.name = src.name + ' (копия)';
+  routes.splice(curRoute + 1, 0, copy);
+  curRoute = curRoute + 1; curPt = -1;
+  saveLocal(); syncProps(); renderRouteList(); draw();
+  toast('Маршрут продублирован');
 });
 
 // ==== свойства точки ====
@@ -494,13 +538,19 @@ function syncProps() {
   ptStop.checked = !!pt.stop;
 }
 
+ptName.addEventListener('focus', pushUndo);
+ptR.addEventListener('focus', pushUndo);
 ptName.addEventListener('input', () => { const pt = curPoint(); if (pt) { pt.name = ptName.value; saveLocal(); } });
 ptR.addEventListener('input', () => {
   const pt = curPoint(); if (!pt) return;
   const v = parseFloat(ptR.value);
   if (isFinite(v)) { pt.r = Math.min(30, Math.max(1, v)); saveLocal(); draw(); }
 });
-ptStop.addEventListener('change', () => { const pt = curPoint(); if (pt) { pt.stop = ptStop.checked; saveLocal(); draw(); } });
+ptStop.addEventListener('change', () => {
+  const pt = curPoint(); if (!pt) return;
+  pushUndo();
+  pt.stop = ptStop.checked; saveLocal(); draw();
+});
 
 document.getElementById('ptUp').addEventListener('click', () => movePt(-1));
 document.getElementById('ptDown').addEventListener('click', () => movePt(1));
@@ -510,6 +560,7 @@ function movePt(dir) {
   const r = routes[curRoute];
   const j = curPt + dir;
   if (!r || curPt < 0 || j < 0 || j >= r.pts.length) return;
+  pushUndo();
   const t = r.pts[curPt]; r.pts[curPt] = r.pts[j]; r.pts[j] = t;
   curPt = j;
   saveLocal(); syncProps(); draw();
@@ -518,6 +569,7 @@ function movePt(dir) {
 function deletePt() {
   const r = routes[curRoute];
   if (!r || curPt < 0) return;
+  pushUndo();
   r.pts.splice(curPt, 1);
   curPt = -1;
   saveLocal(); syncProps(); draw();
@@ -549,6 +601,21 @@ document.addEventListener('keydown', e => {
   else if (e.code === 'Delete' || e.code === 'Backspace') deletePt();
   else if (e.code === 'Equal' || e.code === 'NumpadAdd') zoomAt(W / 2, H / 2, 1.2);
   else if (e.code === 'Minus' || e.code === 'NumpadSubtract') zoomAt(W / 2, H / 2, 1 / 1.2);
+  else if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyZ' || e.code === 'KeyY')) {
+    e.preventDefault();
+    if (e.code === 'KeyZ' && !e.shiftKey) undo(); else redo();
+  } else if (e.code.startsWith('Arrow') && curPoint()) {
+    if (!e.repeat) pushUndo();
+    e.preventDefault();
+    const pt = curPoint();
+    const d = e.shiftKey ? 0.1 : 0.5;
+    if (e.code === 'ArrowUp') pt.z += d;
+    else if (e.code === 'ArrowDown') pt.z -= d;
+    else if (e.code === 'ArrowLeft') pt.x += d;
+    else if (e.code === 'ArrowRight') pt.x -= d;
+    pt.x = snap(pt.x); pt.z = snap(pt.z);
+    saveLocal(); syncProps(); draw();
+  }
 });
 
 // ==== мышь и тач ====
@@ -586,13 +653,16 @@ cv.addEventListener('pointerdown', e => {
   const sx = e.clientX, sy = e.clientY;
   const hit = hitTest(sx, sy);
   if (hit && hit.kind === 'pt') {
+    pushUndo();
     curRoute = hit.ri; curPt = hit.pi;
     const pt = routes[hit.ri].pts[hit.pi];
     drag = { kind: 'pt', ri: hit.ri, pi: hit.pi, offX: pt.x - s2wX(sx), offZ: pt.z - s2wY(sy) };
     syncProps(); renderRouteList();
   } else if (hit && hit.kind === 'cone') {
+    pushUndo();
     drag = { kind: 'cone', ci: hit.ci, offX: map.cones[hit.ci].x - s2wX(sx), offZ: map.cones[hit.ci].z - s2wY(sy) };
   } else if (hit && hit.kind === 'start') {
+    pushUndo();
     drag = { kind: 'start', offX: map.start.x - s2wX(sx), offZ: map.start.z - s2wY(sy) };
   } else if (hit && hit.kind === 'bay') {
     toggleBay(hit.id);
@@ -600,17 +670,32 @@ cv.addEventListener('pointerdown', e => {
     return;
   } else {
     if (tool === 'route') {
+      pushUndo();
       const r = routes[curRoute];
       const wx = snap(s2wX(sx)), wz = snap(s2wY(sy));
-      r.pts.push({ x: wx, z: wz, r: 5, name: 'Точка ' + (r.pts.length + 1) });
-      curPt = r.pts.length - 1;
+      let at = r.pts.length;
+      for (let i = 0; i + 1 < r.pts.length; i++) {
+        const ax = w2sX(r.pts[i].x), ay = w2sY(r.pts[i].z);
+        const bx = w2sX(r.pts[i + 1].x), by = w2sY(r.pts[i + 1].z);
+        if (distToSeg(sx, sy, ax, ay, bx, by) < 12) { at = i + 1; break; }
+      }
+      r.pts.splice(at, 0, { x: wx, z: wz, r: 5, name: 'Точка ' + (r.pts.length + 1) });
+      curPt = at;
       drag = { kind: 'pt', ri: curRoute, pi: curPt, offX: 0, offZ: 0 };
       saveLocal(); syncProps(); renderRouteList();
     } else if (tool === 'cone') {
+      if (hit && hit.kind === 'cone') {
+        pushUndo();
+        map.cones.splice(hit.ci, 1);
+        saveLocal(); draw();
+        return;
+      }
+      pushUndo();
       map.cones.push({ x: snap(s2wX(sx)), z: snap(s2wY(sy)) });
       drag = { kind: 'cone', ci: map.cones.length - 1, offX: 0, offZ: 0 };
       saveLocal();
     } else if (tool === 'start') {
+      pushUndo();
       map.start.x = snap(s2wX(sx)); map.start.z = snap(s2wY(sy));
       drag = { kind: 'start', offX: 0, offZ: 0 };
       saveLocal();
@@ -653,6 +738,12 @@ cv.addEventListener('contextmenu', e => e.preventDefault());
 
 function snap(v) { return Math.round(v * 10) / 10; }
 
+function distToSeg(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  const t = dx || dy ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy))) : 0;
+  return Math.hypot(px - ax - t * dx, py - ay - t * dy);
+}
+
 function zoomAt(sx, sy, factor) {
   const wx = s2wX(sx), wz = s2wY(sy);
   view.scale = Math.min(60, Math.max(3, view.scale * factor));
@@ -670,6 +761,7 @@ document.getElementById('btnZoomOut').addEventListener('click', () => zoomAt(W /
 document.getElementById('btnFit').addEventListener('click', fitView);
 document.getElementById('btnReset').addEventListener('click', () => {
   if (!confirm('Вернуть карту и маршруты по умолчанию? Несохранённые изменения будут потеряны.')) return;
+  pushUndo();
   map = JSON.parse(JSON.stringify(DEFAULT_MAP));
   routes = JSON.parse(JSON.stringify(DEFAULT_ROUTES));
   curRoute = 0; curPt = -1;
@@ -739,6 +831,7 @@ document.getElementById('fileImport').addEventListener('change', e => {
 });
 
 function importRoutes(data) {
+  pushUndo();
   const clean = data.map((r, i) => {
     if (!r || !Array.isArray(r.pts) || !r.pts.length) throw new Error('маршрут ' + (i + 1) + ': нет точек');
     return {
@@ -758,6 +851,7 @@ function importRoutes(data) {
 }
 
 function importMap(data) {
+  pushUndo();
   if (data.start && isFinite(+data.start.x) && isFinite(+data.start.z)) {
     map.start = { x: +data.start.x, z: +data.start.z, h: +data.start.h || 0 };
   }
