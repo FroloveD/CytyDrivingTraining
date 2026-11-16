@@ -682,10 +682,10 @@ cv.addEventListener('pointerdown', e => {
     const pt = routes[hit.ri].pts[hit.pi];
     drag = { kind: 'pt', ri: hit.ri, pi: hit.pi, offX: pt.x - s2wX(sx), offZ: pt.z - s2wY(sy) };
     syncProps(); renderRouteList();
-  } else if (hit && hit.kind === 'cone') {
+  } else if (hit && hit.kind === 'cone' && tool !== 'cone') {
     pushUndo();
     drag = { kind: 'cone', ci: hit.ci, offX: map.cones[hit.ci].x - s2wX(sx), offZ: map.cones[hit.ci].z - s2wY(sy) };
-  } else if (hit && hit.kind === 'start') {
+  } else if (hit && hit.kind === 'start' && tool !== 'start') {
     pushUndo();
     drag = { kind: 'start', offX: map.start.x - s2wX(sx), offZ: map.start.z - s2wY(sy) };
   } else if (hit && hit.kind === 'bay') {
