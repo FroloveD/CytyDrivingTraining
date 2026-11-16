@@ -63,6 +63,9 @@
   .ds-side-mirror canvas{display:block;width:100%;aspect-ratio:2/1;border-radius:4px;background:#202a31}
   .ds-side-mirror .ds-titlebar{height:20px}
   .ds-side-mirror .ds-titlebar button{min-width:20px;height:16px;line-height:12px;font-size:11px}
+  .ds-side-mirror.ds-tb-auto .ds-titlebar{display:none}
+  .ds-side-mirror.ds-tb-auto.ds-tb-show .ds-titlebar,
+  .ds-side-mirror.ds-tb-auto.ds-collapsed .ds-titlebar{display:flex}
   @media(max-width:700px){
     #dsDock{top:4px;max-width:98vw}
     #dsDashboard{width:220px;right:5px;bottom:5px}
@@ -1986,6 +1989,13 @@ if (osmFileInput) {
     const canvas=document.createElement('canvas'); canvas.width=320; canvas.height=160;
     const body=document.createElement('div'); body.className='ds-content'; body.appendChild(canvas);
     head.append(title,min,close); box.append(head,body); mirrorPair.appendChild(box);
+    box.classList.add('ds-tb-auto');   // шапка скрыта, появляется по тапу на зеркало
+    let tbTimer = 0;
+    box.addEventListener('pointerdown', () => {
+      box.classList.add('ds-tb-show');
+      clearTimeout(tbTimer);
+      tbTimer = setTimeout(() => box.classList.remove('ds-tb-show'), 3000);
+    });
     if (typeof settings.sideMirrorSize === 'number') {   // сохранённый размер слайдера — до расчёта позиции по offsetWidth
       box.style.width = settings.sideMirrorSize + 'px';
       box.style.minWidth = settings.sideMirrorSize + 'px';
