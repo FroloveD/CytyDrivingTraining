@@ -12,7 +12,10 @@
   .panel { z-index: 10; position: fixed; background: rgba(0, 0, 0, .62); color: #fff; border-radius: 8px; font-size: 14px; line-height: 1.6; padding: 10px 14px; }
   #hud { left: 12px; top: 12px; min-width: 230px; }
   #hud b { color: #ffd54f; }
-  #status { margin-top: 6px; font-size: 16px; min-height: 22px; }
+  #status { position: fixed; top: 46px; left: 50%; transform: translateX(-50%); max-width: 92vw;
+    z-index: 60; font-size: 16px; min-height: 22px; padding: 5px 12px; border-radius: 8px;
+    background: rgba(8, 17, 24, .82); color: #ffd54f; text-align: center; pointer-events: none; }
+  body.ds-ui-hidden #status { display: none; }
   #help { right: 12px; top: 335px; font-size: 13px; }
 </style>
 
@@ -52,7 +55,7 @@
   #dsDashStatus{display:flex;justify-content:space-between;gap:5px;flex-wrap:wrap;margin-top:4px}
   .ds-indicator{padding:3px 6px;border-radius:4px;background:#26333b;color:#aab7bf}
   .ds-indicator.active{background:#b77a16;color:#fff}
-  #dsMirrorPair{position:fixed;z-index:35;inset:0;pointer-events:none}
+  #dsMirrorPair{position:fixed;z-index:10002;inset:0;pointer-events:none}
   .ds-side-mirror{position:fixed;width:min(25vw,250px);min-width:145px;
     background:rgba(0,0,0,.78);border:1px solid #9aa8b2;border-radius:7px;padding:4px;
     box-shadow:0 3px 12px #0008;pointer-events:auto;touch-action:none;box-sizing:border-box}
@@ -90,6 +93,10 @@
   .ds-gear{width:40px;height:40px;font-size:15px}
   .ds-gear.ds-gear-active{background:rgba(46,125,80,.92);border-color:#7bd88f}
   .ds-act.ds-on{background:rgba(46,125,80,.92);border-color:#7bd88f}
+  .ds-drag-grip{position:absolute;top:-18px;left:0;width:24px;height:17px;
+    font:bold 13px/17px system-ui;color:rgba(255,255,255,.8);background:rgba(8,17,24,.55);
+    border-radius:4px;text-align:center;pointer-events:auto;cursor:move;
+    user-select:none;-webkit-user-select:none;touch-action:none}
 </style>
 
 </head>
@@ -103,7 +110,6 @@
   Касания: <b id="coll">0</b><br>
   Время: <b id="time">0.0</b> с<br>
   Поворотник: <b id="sig">выкл</b>
-  <div id="status"></div>
 </div>
 
 <div id="sensPanel" class="panel" style="right: 12px; top: 12px;">
@@ -127,7 +133,7 @@
   </svg>
 </div>
 
-<div id="rearMirror" style="position: fixed; left: 0px; top: 70px; width: 480px; z-index: 12; cursor: move; touch-action: none; user-select: none;">
+<div id="rearMirror" style="position: fixed; left: 0px; top: 70px; width: 480px; z-index: 10002; cursor: move; touch-action: none; user-select: none;">
   <canvas id="mirrorCanvas" width="512" height="128" style="display: block; width: 100%; height: auto; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.5);"></canvas>
 </div>
 
@@ -246,6 +252,7 @@ let collisions = 0, elapsed = 0, holdT = 0, finished = false, contact = false, s
 let finishedBay = null;
 
 const statusEl = document.getElementById('status');
+document.body.appendChild(statusEl);
 const el = id => document.getElementById(id);
 
 // ================= сцена =================
@@ -1724,6 +1731,8 @@ if (osmFileInput) {
   const dockContent=document.createElement('div'); dockContent.className='ds-dock-content';
   dock.append(dockHead,dockContent);
   document.body.appendChild(dock);
+  dock.classList.add('ds-dock-collapsed');
+  dockMin.textContent='+';
 
   let saved = {};
   const persist = () => {};
@@ -2477,6 +2486,31 @@ cam.updateMatrixWorld(true);
   pedals.append(brake, gas);
   document.body.appendChild(pedals);
 
+  const mkDraggable = el => {
+    const grip = document.createElement('div');
+    grip.className = 'ds-drag-grip';
+    grip.textContent = '⠿';
+    grip.title = 'Перетащить';
+    el.appendChild(grip);
+    let drag = null;
+    grip.addEventListener('pointerdown', e => {
+      e.preventDefault(); e.stopPropagation();
+      const r = el.getBoundingClientRect();
+      drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+      el.style.right = 'auto'; el.style.bottom = 'auto';
+      el.style.left = r.left + 'px'; el.style.top = r.top + 'px';
+      grip.setPointerCapture(e.pointerId);
+    });
+    grip.addEventListener('pointermove', e => {
+      if (!drag) return;
+      el.style.left = Math.max(0, Math.min(innerWidth - el.offsetWidth, e.clientX - drag.dx)) + 'px';
+      el.style.top = Math.max(0, Math.min(innerHeight - el.offsetHeight, e.clientY - drag.dy)) + 'px';
+    });
+    const stop = () => { drag = null; };
+    grip.addEventListener('pointerup', stop);
+    grip.addEventListener('pointercancel', stop);
+  };
+
   const hold = (btn, code) => {
     const on = e => { e.preventDefault(); keys[code] = true; btn.classList.add('ds-pressed'); };
     const off = e => { e.preventDefault(); keys[code] = false; btn.classList.remove('ds-pressed'); };
@@ -2545,6 +2579,10 @@ cam.updateMatrixWorld(true);
     gearBtns.D.textContent = gear === 'D' ? 'D' + autoGear : 'D';
     for (const [b, stateFn] of stateBtns) b.classList.toggle('ds-on', stateFn());
   };
+
+  mkDraggable(pedals);
+  mkDraggable(actions);
+  mkDraggable(sel);
 })();
 
 // Старт основного цикла
