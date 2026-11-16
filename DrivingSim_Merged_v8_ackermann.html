@@ -2502,6 +2502,7 @@ cam.updateMatrixWorld(true);
       e.preventDefault(); e.stopPropagation();
       const r = el.getBoundingClientRect();
       drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+      el.style.position = 'fixed';   // педали изначально в потоке группы — при переносе становятся независимыми
       el.style.right = 'auto'; el.style.bottom = 'auto';
       el.style.left = r.left + 'px'; el.style.top = r.top + 'px';
       el.style.zIndex = 10006;   // группа поверх остальных, пока её тащат
@@ -2516,6 +2517,28 @@ cam.updateMatrixWorld(true);
     grip.addEventListener('pointerup', stop);
     grip.addEventListener('pointercancel', stop);
   };
+
+  // двойной тап/клик по элементу выводит его на первый план
+  let dtT = 0, dtKey = null, dtZ = 10007;
+  document.addEventListener('pointerdown', e => {
+    const t = e.target;
+    if (!t || !t.closest || t.closest('input')) return;
+    let el = null, key = null, suppress = false;
+    const grp = t.closest('#dsTouchPedals, #dsTouchActions, #dsGearSelector');
+    if (grp) {
+      el = grp; key = t; suppress = true;   // второй тап кнопки глушим, чтобы не переключать дважды
+    } else if (!t.closest('button')) {
+      const win = t.closest('.ds-window, .ds-side-mirror, #rearMirror');
+      if (win) { el = win; key = t; }
+    }
+    if (!el) return;
+    const now = performance.now();
+    if (now - dtT < 400 && dtKey === key) {
+      el.style.zIndex = ++dtZ;
+      if (suppress) e.stopPropagation();
+      dtT = 0; dtKey = null;
+    } else { dtT = now; dtKey = key; }
+  }, true);
 
   const hold = (btn, code) => {
     const on = e => { e.preventDefault(); keys[code] = true; btn.classList.add('ds-pressed'); };
@@ -2586,7 +2609,8 @@ cam.updateMatrixWorld(true);
     for (const [b, stateFn] of stateBtns) b.classList.toggle('ds-on', stateFn());
   };
 
-  mkDraggable(pedals);
+  mkDraggable(gas);
+  mkDraggable(brake);
   mkDraggable(actions);
   mkDraggable(sel);
 })();
