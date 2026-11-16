@@ -31,6 +31,9 @@
   .ds-titlebar button:hover{background:#405b6b}
   .ds-content{min-width:0}
   .ds-collapsed .ds-content{display:none}
+  .ds-window .ds-titlebar{display:none}
+  .ds-window.ds-tb-show .ds-titlebar,
+  .ds-window.ds-collapsed .ds-titlebar{display:flex}
   .ds-hidden{display:none!important}
   body.ds-ui-hidden .ds-window,body.ds-ui-hidden .ds-side-mirror,body.ds-ui-hidden #dsDock{display:none!important}
   #dsDock{position:fixed;z-index:10000;left:50%;top:7px;transform:translateX(-50%);
@@ -1884,6 +1887,13 @@ if (osmFileInput) {
     bar.append(name,min,close);
     node.append(bar,content);
     node.style.position='fixed';
+
+    let tbTimer = 0;   // шапка скрыта CSS-ом по умолчанию, тап/клик по окну показывает её на 3 с (как у зеркал)
+    node.addEventListener('pointerdown', () => {
+      node.classList.add('ds-tb-show');
+      clearTimeout(tbTimer);
+      tbTimer = setTimeout(() => node.classList.remove('ds-tb-show'), 3000);
+    });
 
     const restore = document.createElement('button');
     restore.type='button'; restore.textContent=label; restore.title='Показать / скрыть '+label;
