@@ -1,0 +1,2352 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CytyDrivingTraining — парковка задним ходом</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #9fb7c9; font-family: system-ui, sans-serif; }
+  canvas { display: block; filter: contrast(1.06) saturate(1.08); }
+  #vignette { z-index: 5; position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,0.35) 100%); }
+  .panel { z-index: 10; position: fixed; background: rgba(0, 0, 0, .62); color: #fff; border-radius: 8px; font-size: 14px; line-height: 1.6; padding: 10px 14px; }
+  #hud { left: 12px; top: 12px; min-width: 230px; }
+  #hud b { color: #ffd54f; }
+  #status { margin-top: 6px; font-size: 16px; min-height: 22px; }
+  #help { right: 12px; bottom: 12px; font-size: 13px; }
+</style>
+
+<style id="drivingsim-ui-v3-css">
+  .ds-window{box-sizing:border-box;z-index:40}
+  .ds-titlebar{height:27px;display:flex;align-items:center;gap:7px;padding:2px 4px;
+    box-sizing:border-box;background:rgba(15,27,36,.92);color:#f3f7fa;
+    border-radius:6px 6px 0 0;font:12px system-ui,sans-serif;user-select:none;touch-action:none}
+  .ds-titlebar .ds-name{flex:1;cursor:move;font-weight:700;letter-spacing:.04em}
+  .ds-titlebar button{border:1px solid #73818b;background:#263b49;color:#fff;
+    border-radius:4px;min-width:23px;height:21px;line-height:16px;cursor:pointer}
+  .ds-titlebar button:hover{background:#405b6b}
+  .ds-content{min-width:0}
+  .ds-collapsed .ds-content{display:none}
+  .ds-hidden{display:none!important}
+  body.ds-ui-hidden .ds-window,body.ds-ui-hidden .ds-side-mirror,body.ds-ui-hidden #dsDock{display:none!important}
+  #dsDock{position:fixed;z-index:10000;left:50%;top:7px;transform:translateX(-50%);
+    display:block;max-width:94vw;padding:4px 6px;border-radius:9px;
+    background:rgba(8,17,24,.88);box-shadow:0 3px 12px #0008;
+    backdrop-filter:blur(7px);font:11px system-ui;touch-action:none}
+  #dsDock .ds-dock-head{display:flex;align-items:center;gap:8px;min-height:24px;
+    color:#eef5fa;font-weight:700;cursor:move;user-select:none}
+  #dsDock .ds-dock-title{flex:1;letter-spacing:.04em}
+  #dsDock .ds-dock-head button,#dsDock .ds-dock-content button{border:1px solid #647989;
+    background:#203442;color:#eef5fa;border-radius:6px;padding:5px 8px;cursor:pointer}
+  #dsDock .ds-dock-content{display:flex;flex-wrap:wrap;justify-content:center;gap:5px;padding-top:4px}
+  #dsDock.ds-dock-collapsed .ds-dock-content{display:none}
+  #dsDock button[aria-pressed="true"]{opacity:.55;text-decoration:line-through}
+  #dsDashboard{position:fixed;right:12px;bottom:12px;width:290px;padding:0;
+    overflow:hidden;background:rgba(5,12,18,.88);color:#eaf1f5;border:1px solid #627583;
+    border-radius:8px;box-shadow:0 4px 18px #0009;font:12px system-ui}
+  #dsDashboard .ds-content{padding:7px 9px}
+  #dsDashCanvas{display:block;width:100%;height:auto}
+  #dsDashStatus{display:flex;justify-content:space-between;gap:5px;flex-wrap:wrap;margin-top:4px}
+  .ds-indicator{padding:3px 6px;border-radius:4px;background:#26333b;color:#aab7bf}
+  .ds-indicator.active{background:#b77a16;color:#fff}
+  #dsMirrorPair{position:fixed;z-index:35;inset:0;pointer-events:none}
+  .ds-side-mirror{position:fixed;width:min(25vw,250px);min-width:145px;
+    background:rgba(0,0,0,.78);border:1px solid #9aa8b2;border-radius:7px;padding:4px;
+    box-shadow:0 3px 12px #0008;pointer-events:auto;touch-action:none;box-sizing:border-box}
+  .ds-side-mirror canvas{display:block;width:100%;aspect-ratio:2/1;border-radius:4px;background:#202a31}
+  .ds-side-mirror .ds-titlebar{height:24px}
+  @media(max-width:700px){
+    #dsDock{top:4px;max-width:98vw}
+    #dsDashboard{width:220px;right:5px;bottom:5px}
+    .ds-side-mirror{min-width:110px;width: min(43vw, 190px);padding:3px}
+  }
+</style>
+
+</head>
+<body>
+<div id="vignette"></div>
+
+<div id="hud" class="panel">
+  Передача: <b id="gear">D</b><br>
+  Скорость: <b id="speed">0</b> км/ч<br>
+  Руль: <b id="steer">0</b>°<br>
+  Касания: <b id="coll">0</b><br>
+  Время: <b id="time">0.0</b> с<br>
+  Поворотник: <b id="sig">выкл</b>
+  <div id="status"></div>
+</div>
+
+<div id="sensPanel" class="panel" style="right: 12px; top: 12px;">
+  Руль (ЛКМ): <b id="steerVal">1.0</b>×<br>
+  <input id="steerRange" type="range" min="0.3" max="3" step="0.1" value="1" style="width: 200px"><br>
+  Камера (ПКМ): <b id="camVal">1.0</b>×<br>
+  <input id="camRange" type="range" min="0.3" max="3" step="0.1" value="1" style="width: 200px">
+  <br>Зеркало (ширина): <b id="mirrorSizeVal">480</b> px<br>
+  <input id="mirrorSize" type="range" min="200" max="900" step="10" value="480" style="width: 200px">
+</div>
+
+<div id="wheelHud" class="panel" style="left: 12px; bottom: 12px; padding: 6px;">
+  <div id="wheelGrip" style="cursor: move; text-align: center; font-size: 12px; color: #ccc; user-select: none; margin-bottom: 4px;">⋮⋮ перетащить</div>
+  <svg id="wheelSvg" width="165" height="165" viewBox="0 0 100 100" style="cursor: grab; touch-action: none;">
+    <g id="wheelRot">
+      <circle cx="50" cy="50" r="42" fill="none" stroke="#e8e8e8" stroke-width="8"/>
+      <path d="M50 50 L50 22 M50 50 L23 66 M50 50 L77 66" stroke="#e8e8e8" stroke-width="7" stroke-linecap="round"/>
+      <circle cx="50" cy="50" r="10" fill="#c8c8c8"/>
+      <rect x="46" y="2" width="8" height="12" fill="#ff5252"/>
+    </g>
+  </svg>
+</div>
+
+<div id="rearMirror" style="position: fixed; left: 0px; top: 70px; width: 480px; z-index: 12; cursor: move; touch-action: none; user-select: none;">
+  <canvas id="mirrorCanvas" width="512" height="128" style="display: block; width: 100%; height: auto; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.5);"></canvas>
+</div>
+
+<div id="osmPanel" class="panel" style="right: 12px; top: 175px; width: 260px;">
+  Город из OpenStreetMap (JSON):<br>
+  <input id="osmFile" type="file" accept=".json,application/json" style="width: 240px; margin-top: 4px;"><br>
+  <span id="osmStatus">не загружен</span>
+</div>
+
+<div id="help" class="panel">
+  W / S — газ / тормоз<br>
+  ЛКМ (тянуть) — руль; A / D — руль с клавиатуры<br>
+  R — задний, N — нейтраль, F — авто D (1–5)<br>
+  1 / 2 / 3 — ручные передачи<br>
+  ПКМ (тянуть) — вращение камеры<br>
+  Колесо — приближение<br>
+  Q / E — левый / правый поворотник<br>
+  I — зажигание (запуск/остановка двигателя)<br>
+  Space — стояночный тормоз (ручник)<br>
+  B — пристегнуть/отстегнуть ремень<br>
+  L — фары<br>
+  H — скрыть/показать панели<br>
+  C — виды камеры<br>
+  Backspace — начать заново<br>
+  Бокс 2,5 × 5,3 м, проезд 6 м (предварительно)<br>
+  Параллельно: 6,0 × 2,2 м (предварительно)
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ================= параметры (метры, радианы, секунды) =================
+// Kia Ceed: база 2,65 м, свесы ~0,88 и ~0,78 м, ширина 1,8 м.
+// maxSteer подобран так, чтобы внешний передний угол кузова описывал окружность около 10,6 м (как у Ceed).
+const CAR = { L: 2.65, rear: 0.78, front: 0.88, half: 0.9, maxSteer: 0.6 };
+// Геометрия Аккермана: cot(δвнутр) − cot(δвнешн) = T / L, δцентр — угол «велосипеда» (R = L / tan δцентр)
+const ACK_TRACK = 1.57;                       // колея, м (как в DIM.ceed)
+const ACK_HALF = ACK_TRACK / 2 / CAR.L;       // T / (2L)
+// угол колеса: side = +1 левое (+X), −1 правое; delta — центральный угол, + влево
+function ackermannAngle(side, delta) {
+  if (delta === 0) return 0;
+  const t = Math.sign(delta);
+  const cotC = 1 / Math.tan(Math.abs(delta));
+  const inner = Math.atan(1 / (cotC - ACK_HALF));   // внутреннее колесо — больший угол
+  const outer = Math.atan(1 / (cotC + ACK_HALF));   // внешнее колесо — меньший угол
+  return t * (side === t ? inner : outer);
+}
+// максимум: внутреннее колесо 35°
+CAR.maxSteer = Math.atan(1 / (1 / Math.tan(35 * Math.PI / 180) + ACK_HALF));
+const CENTER = (CAR.L + CAR.front - CAR.rear) / 2;   // центр кузова от задней оси
+const HALF_LEN = (CAR.rear + CAR.L + CAR.front) / 2; // половина длины кузова
+const WHEEL_R = 0.33;
+
+// размеры моделей, м. Длина, база и ширина — по спецификациям; свесы Rio и Ceed частично оценочные.
+// rakeF / rakeR — наклон переднего и заднего стекла (седан: покатая корма, хэтчбек: почти вертикальная),
+// lift — дополнительный клиренс, rails — рейлинги и защита (кроссовер)
+const DIM = {
+  // Габариты по спецификациям производителя (autotijd.be, carsguide.com.au, cars-data.com).
+  // L — база, front/rear — свесы, w — ширина без зеркал, h — высота, track — колея.
+  // Свесы и колея Rio оценочные: в открытых источниках их не нашёл.
+  // p — боковой силуэт (z вдоль машины, y вверх): sF/sR — основание стекла спереди/сзади,
+  // rF/rR — верх крыши спереди/сзади, yBelt — линия пояса, yn — нос, yRear — верх задней части.
+  picanto: { name: 'Kia Picanto', L: 2.40,  front: 0.685, rear: 0.52,  w: 1.595, h: 1.485, track: 1.40,  lift: 0,    rails: false,
+             p: { sF: 2.25, rF: 1.80, rR: 0.45, sR: -0.22, yBelt: 0.92, yRoof: 1.45, yn: 0.72, yRear: 1.02 } },
+  rio:     { name: 'Kia Rio',     L: 2.57,  front: 0.81,  rear: 0.986, w: 1.72,  h: 1.45,  track: 1.51,  lift: 0,    rails: false, sedan: true,
+             p: { sF: 2.25, rF: 1.65, rR: 0.42, sR: -0.25, yBelt: 0.92, yRoof: 1.38, yn: 0.64, yRear: 0.95 } },
+  ceed:    { name: 'Kia Ceed',    L: 2.65,  front: 0.88,  rear: 0.78,  w: 1.80,  h: 1.447, track: 1.57,  lift: 0,    rails: false,
+             p: { sF: 2.45, rF: 1.85, rR: 0.55, sR: -0.15, yBelt: 0.92, yRoof: 1.37, yn: 0.66, yRear: 1.00 } },
+  xceed:   { name: 'Kia XCeed',   L: 2.65,  front: 0.905, rear: 0.84,  w: 1.80,  h: 1.483, track: 1.585, lift: 0.08, rails: true,
+             p: { sF: 2.35, rF: 1.95, rR: 0.85, sR: 0.00, yBelt: 1.00, yRoof: 1.40, yn: 0.74, yRear: 1.12 } },
+  sorento: { name: 'Kia Sorento', L: 2.815, front: 0.925, rear: 1.075, w: 1.90,  h: 1.695, track: 1.65,  lift: 0.10, rails: true,
+             p: { sF: 2.95, rF: 2.30, rR: 0.25, sR: 0.00, yBelt: 1.12, yRoof: 1.66, yn: 0.92, yRear: 1.28 } }
+};
+const BAY = { w: 2.5, l: 5.3 };   // размер бокса для легкового авто (предварительно, см. памятку)
+const AISLE = 6.0;                // проезд между рядами (предварительно)
+const COLS = 4;                   // боксов в каждом ряду
+const START = { x: 0, z: 2.5, h: 0 };  // в проезде между рядами, heading 0 = +Z
+const CONE_R = 0.25;
+const PARKED_COLORS = [0x9e9e9e, 0xc0392b, 0x2e7d32, 0xf5f5f5, 0x6d4c41];
+// модель в занятых боксах (номер бокса -> ключ DIM)
+const PARKED_MODEL = { 1: 'picanto', 3: 'xceed', 6: 'rio', 8: 'sorento' };
+const PARKED_COLOR = { 1: 0xf2c200, 3: 0xf5f5f5, 6: 0x2e5fa8, 8: 0x4a4f55 };
+
+// препятствия: прямоугольники (AABB) — заполняются ниже; конусы — круглые
+const blocks = [];
+
+// ================= состояние =================
+const state = { ...START, v: 0, steer: 0 };
+const keys = {};
+let gear = 'D';
+let autoGear = 1;   // текущая ступень автомата (1–5), когда gear === 'D'
+// вид камеры: орбита вокруг машины (yaw — отклонение от «сзади», el — угол над горизонтом, r — расстояние)
+const VIEW_PRESETS = [
+  { name: 'Сзади',          r: 10, el: 0.45 },
+  { name: 'Сзади, дальше',  r: 20, el: 0.40 },
+  { name: 'Сверху-сзади',   r: 12, el: 0.95 },
+  { name: 'Сверху',         r: 28, el: 1.45 }
+];
+const view = { yaw: 0, el: VIEW_PRESETS[0].el, r: VIEW_PRESETS[0].r };
+let presetIndex = 0;
+let wheelSpin = 0;
+let signal = null;   // null | 'L' | 'R'
+let engineRunning = false;   // зажигание (I)
+let handbrakeActive = true;  // стояночный тормоз (Space), включён по умолчанию
+let beltFastened = false;    // ремень (B)
+let lightsOn = false;        // фары (L)
+let uiHidden = false;        // скрытие панелей (H)
+let prevV = 0, pitchCur = 0, rollCur = 0;   // подвеска: продольный и поперечный крен кузова
+let dragBtn = -1, lastX = 0, lastY = 0;
+let steerSens = 1;   // чувствительность руля (ЛКМ), ползунок
+let camSens = 1;     // чувствительность камеры (ПКМ), ползунок
+// руль: угол рулевого колеса в градусах; ~2,7 оборота на упор (как у легковых), 1 оборот ≈ 250 px
+let swDeg = 0;
+const SW = { degPerPx: 1.44, maxDeg: 486, ratio: 486 / (CAR.maxSteer * 180 / Math.PI) };   // ratio: градусы руля на градус колёс
+let collisions = 0, elapsed = 0, holdT = 0, finished = false, contact = false, score = 0;
+let finishedBay = null;
+
+const statusEl = document.getElementById('status');
+const el = id => document.getElementById(id);
+
+// ================= сцена =================
+const scene = new THREE.Scene();
+const skyCanvas = document.createElement('canvas');
+skyCanvas.width = 2; skyCanvas.height = 256;
+const skyCtx = skyCanvas.getContext('2d');
+const skyGrad = skyCtx.createLinearGradient(0, 0, 0, 256);
+skyGrad.addColorStop(0, '#5d8fc4');
+skyGrad.addColorStop(0.55, '#b9d4e8');
+skyGrad.addColorStop(1, '#dfe9f0');
+skyCtx.fillStyle = skyGrad;
+skyCtx.fillRect(0, 0, 2, 256);
+scene.background = new THREE.CanvasTexture(skyCanvas);
+scene.fog = new THREE.Fog(0xc4d8e6, 60, 220);
+
+const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 500);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+scene.add(new THREE.HemisphereLight(0xdfeaf5, 0x5a5e62, 0.5));
+const sun = new THREE.DirectionalLight(0xffffff, 1.3);
+sun.position.set(10, 22, 8);
+sun.castShadow = true;
+sun.shadow.mapSize.set(4096, 4096);
+sun.shadow.camera.left = -25; sun.shadow.camera.right = 25;
+sun.shadow.camera.top = 25;   sun.shadow.camera.bottom = -25;
+sun.shadow.camera.near = 1;   sun.shadow.camera.far = 80;
+sun.shadow.bias = -0.0005;
+sun.target.position.set(0, 0, 5);
+scene.add(sun, sun.target);
+
+const mat = color => new THREE.MeshLambertMaterial({ color });
+const matStd = (color, metalness = 0.2, roughness = 0.5) => new THREE.MeshStandardMaterial({ color, metalness, roughness });
+function addBox(w, h, d, x, y, z, color) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color));
+  m.position.set(x, y, z);
+  scene.add(m);
+  return m;
+}
+
+// автомобиль: origin группы — задняя ось, локальная +Z — вперёд
+// текстура таблички «У» (учебное транспортное средство): белый квадрат, красная кайма, чёрная буква
+function makeLearnerSignTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, 256, 256);
+  g.strokeStyle = '#d32f2f';
+  g.lineWidth = 26;
+  g.strokeRect(13, 13, 230, 230);
+  g.fillStyle = '#111111';
+  g.font = 'bold 170px Arial, sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText('У', 128, 136);
+  return new THREE.CanvasTexture(c);
+}
+
+// скруглённый параллелепипед: вершины сдвигаются к поверхности сферы радиуса r
+function roundedBoxGeo(w, h, d, r, seg) {
+  const geo = new THREE.BoxGeometry(w, h, d, seg, seg, seg);
+  const pos = geo.attributes.position;
+  const hw = w / 2 - r, hh = h / 2 - r, hd = d / 2 - r;
+  const v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    const ix = Math.min(hw, Math.max(-hw, v.x));
+    const iy = Math.min(hh, Math.max(-hh, v.y));
+    const iz = Math.min(hd, Math.max(-hd, v.z));
+    const dx = v.x - ix, dy = v.y - iy, dz = v.z - iz;
+    const len = Math.hypot(dx, dy, dz);
+    if (len > 0) v.set(ix + dx / len * r, iy + dy / len * r, iz + dz / len * r);
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// произвольная деформация вершин геометрии
+function deform(geo, fn) {
+  const pos = geo.attributes.position;
+  const v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    fn(v);
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// выдавливание бокового профиля по ширине: точки (z, y), ось X — поперёк машины
+function extrudeSide(points, width, bevel = 0.03) {
+  const shape = new THREE.Shape();
+  shape.moveTo(points[0][0], points[0][1]);
+  for (let i = 1; i < points.length; i++) shape.lineTo(points[i][0], points[i][1]);
+  shape.closePath();
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth: width, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel * 0.8, bevelSegments: 3, curveSegments: 1, steps: 1
+  });
+  geo.translate(0, 0, -width / 2);   // центрируем по ширине
+  geo.rotateY(-Math.PI / 2);         // форма (x → z), ширина (z → -x)
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// отрезок между двумя точками: цилиндр единичной высоты, растягивается и поворачивается
+function setLink(mesh, a, b) {
+  const dir = new THREE.Vector3().subVectors(b, a);
+  const len = dir.length();
+  mesh.position.copy(a).add(b).multiplyScalar(0.5);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+  mesh.scale.set(1, len, 1);
+}
+
+// поворот вектора вокруг вертикальной оси (для руля передних колёс)
+function rotY(v, a) {
+  const c = Math.cos(a), sn = Math.sin(a);
+  return new THREE.Vector3(v.x * c + v.z * sn, v.y, -v.x * sn + v.z * c);
+}
+
+// подвеска: стойка с пружиной, нижние рычаги и рулевая тяга (передние колёса поворачиваются с рулём)
+function updateLinks(g, chassis, steer) {
+  const toChassis = v => v.clone().applyEuler(chassis.rotation).add(chassis.position);
+  const Z = new THREE.Vector3(0, 0, 1);
+  for (const l of g.userData.links) {
+    const a = l.steer ? ackermannAngle(Math.sign(l.origin.x), steer) : 0;
+    const hubPt = off => l.origin.clone().add(rotY(off, a));
+    const top = toChassis(l.strutTop);
+    const bottom = hubPt(l.strutOff);
+    setLink(l.strut, bottom, top);
+    const dir = top.clone().sub(bottom).normalize();
+    l.coils.forEach((ring, k) => {
+      const t = 0.3 + 0.45 * k / (l.coils.length - 1);
+      ring.position.copy(bottom).lerp(top, t);
+      ring.quaternion.setFromUnitVectors(Z, dir);
+    });
+    const joint = hubPt(l.joinOff);
+    setLink(l.legA, joint, toChassis(l.legA_pt));
+    setLink(l.legB, joint, toChassis(l.legB_pt));
+    if (l.tie) setLink(l.tie, hubPt(l.tieOff), toChassis(l.rackPt));
+  }
+}
+
+function makeCar(color, d = DIM.ceed, opts = {}) {
+  const g = new THREE.Group();
+  const chassis = new THREE.Group();   // кузов: крен и тангаж при разгоне, торможении, повороте
+  g.add(chassis);
+  const p = d.p;
+  const sw = d.w / 1.8;                    // масштаб ширины относительно Ceed
+  const zF = d.L + d.front, zR = -d.rear;
+  const yb = 0.22 + d.lift;                // низ кузова
+  const half = d.w / 2 + 0.03;             // боковая поверхность с учётом фаски
+  const wOff = d.track / 2;   // колея из спецификации: колёса внутри ниши
+  const zB = (p.sF + p.sR) / 2;            // стойка B (между передней и задней дверью)
+  const zFD = p.sF - 0.05;                 // передний край передней двери
+  const zRD = p.sR - 0.1;                  // задний край задней двери
+  const yMid = (yb + p.yBelt) / 2;
+
+  const paint = matStd(color, 0.35, 0.35);
+  const glass = new THREE.MeshStandardMaterial({
+    color: 0x2a4a66, metalness: 0.3, roughness: 0.05, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide
+  });
+  const trim = matStd(0x151515, 0.1, 0.7);
+  const seat = matStd(0x2a2a2a, 0.0, 0.9);
+  const dash = matStd(0x1e1e1e, 0.0, 0.8);
+  const plate = matStd(0xf2f2f2, 0.0, 0.6);
+  const lightW = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff3c4, emissiveIntensity: 0.0 });
+  const lightR = new THREE.MeshStandardMaterial({ color: 0xaa1111, emissive: 0xff2020, emissiveIntensity: 0.0 });
+  const ampL = new THREE.MeshStandardMaterial({ color: 0xff9a00, emissive: 0xff8000, emissiveIntensity: 0 });
+  const ampR = ampL.clone();
+
+  const add = (geo, m, x, y, z) => {
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    chassis.add(mesh);
+    return mesh;
+  };
+
+  // кузов по боковому силуэту
+  // контактная тень под кузовом
+  const shadowCanvas = document.createElement('canvas');
+  shadowCanvas.width = shadowCanvas.height = 128;
+  const shCtx = shadowCanvas.getContext('2d');
+  const shGrad = shCtx.createRadialGradient(64, 64, 10, 64, 64, 64);
+  shGrad.addColorStop(0, 'rgba(0,0,0,0.55)');
+  shGrad.addColorStop(1, 'rgba(0,0,0,0)');
+  shCtx.fillStyle = shGrad;
+  shCtx.fillRect(0, 0, 128, 128);
+  const contactShadow = new THREE.Mesh(
+    new THREE.PlaneGeometry(d.w * 1.25, (zF - zR) * 1.1),
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(shadowCanvas), transparent: true, depthWrite: false })
+  );
+  contactShadow.rotation.x = -Math.PI / 2;
+  contactShadow.position.set(0, 0.012, (zF + zR) / 2);
+  g.add(contactShadow);
+
+  // полый кузов: нижний контур с вырезами под колёса; толщина стенок 4 см, внутри — салон
+  const Rn = WHEEL_R + 0.09;
+  const WALL = 0.04;
+  const notchEdge = (yBot, R, zA, zB) => {
+    const sN = Math.max(-1, Math.min(1, (yBot - WHEEL_R) / R));
+    const thL = Math.PI - Math.asin(sN), thR = Math.asin(sN);
+    const pts = [[zA, yBot]];
+    for (const wz of [0, d.L]) {
+      for (let i = 0; i <= 12; i++) {
+        const th = thL + (thR - thL) * i / 12;
+        pts.push([wz + R * Math.cos(th), WHEEL_R + R * Math.sin(th)]);
+      }
+    }
+    pts.push([zB, yBot]);
+    return pts;
+  };
+  const outerPts = notchEdge(yb, Rn, zR, zF).concat([[zF, p.yn], [p.sF, p.yBelt], [p.sR, p.yBelt], [zR, p.yRear]]);
+  const yBi = p.yBelt - WALL, ybi = yb + WALL;
+  const innerPts = notchEdge(ybi, Rn + WALL, zR + WALL, zF - WALL)
+    .concat([[zF - WALL, p.yn - WALL], [p.sF - 0.03, yBi], [p.sR + 0.03, yBi], [zR + WALL, p.yRear - WALL]]);
+  // каркас с полостью: верх, низ, передняя и задняя части — стенки; боковины — отдельные панели
+  const shell = new THREE.Shape(outerPts.map(([x, y]) => new THREE.Vector2(x, y)));
+  shell.holes.push(new THREE.Path(innerPts.map(([x, y]) => new THREE.Vector2(x, y))));
+  const shellGeo = new THREE.ExtrudeGeometry(shell, { depth: d.w - 0.08, bevelEnabled: false, curveSegments: 1, steps: 1 });
+  shellGeo.translate(0, 0, -(d.w - 0.08) / 2);
+  shellGeo.rotateY(-Math.PI / 2);
+  shellGeo.computeVertexNormals();
+  add(shellGeo, paint, 0, 0, 0);
+  // боковины с выпуклостью по высоте и сужением к носу и корме (не прямоугольное корыто)
+  const cEnd = (zF + zR) / 2, hEnd = (zF - zR) / 2;
+  const sidePanel = sgn => {
+    const geo = extrudeSide(outerPts, WALL, 0.004);
+    geo.translate(sgn * (half - WALL / 2), 0, 0);
+    deform(geo, v => {
+      const h = Math.min(1, Math.max(0, (v.y - yb) / (p.yBelt - yb)));
+      const zn = (v.z - cEnd) / hEnd;
+      const bulge = 1 + 0.03 * Math.sin(Math.PI * h);
+      const nose = 1 - 0.06 * Math.max(0, Math.abs(zn) - 0.75) / 0.25;
+      v.x *= bulge * nose;
+    });
+    add(geo, paint, 0, 0, 0);
+  };
+  sidePanel(-1);
+  sidePanel(1);
+  // прозрачное остекление салона и окрашенная крыша
+  // остекление сужается к крыше, как у настоящего кузова
+  const glassGeo = extrudeSide([[p.sF, p.yBelt - 0.04], [p.rF, p.yRoof], [p.rR, p.yRoof], [p.sR, p.yBelt - 0.04]], 1.5 * sw);
+  deform(glassGeo, v => {
+    const t = Math.min(1, Math.max(0, (v.y - (p.yBelt - 0.04)) / (p.yRoof - (p.yBelt - 0.04))));
+    v.x *= 1 - 0.08 * t;
+  });
+  add(glassGeo, glass, 0, 0, 0).renderOrder = 2;
+  const roofGeo = extrudeSide([[p.rF, p.yRoof - 0.02], [p.rR, p.yRoof - 0.02], [p.rR, p.yRoof + 0.02], [p.rF, p.yRoof + 0.02]], 1.42 * sw, 0.01);
+  deform(roofGeo, v => { v.x *= 0.92; });
+  add(roofGeo, paint, 0, 0, 0);
+
+  // салон: приборная панель, руль, сиденья
+  const zFS = (p.sF + p.rR) / 2 - 0.2;     // переднее сиденье
+  const zRS = zFS - 0.9;                   // заднее сиденье
+  add(roundedBoxGeo(1.4 * sw, 0.14, 0.32, 0.04, 2), dash, 0, p.yBelt + 0.04, p.sF - 0.25);
+  const steerWheel = new THREE.Group();   // руль слева (водитель слева), вращается вокруг своей оси
+  steerWheel.position.set(0.36 * sw, 1.0, zFS + 0.5);   // руль слева: левая сторона = +X
+  steerWheel.rotation.x = -0.5;
+  const steerRim = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.02, 8, 18), trim);
+  const steerSpoke = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.03, 0.02), trim);
+  steerWheel.add(steerRim, steerSpoke);
+  chassis.add(steerWheel);
+  g.userData.steerWheel = steerWheel;
+
+  if (opts.driver) {
+    const dx = 0.36 * sw, zD = zFS;
+    const hipY = yb + 0.42, shoulderY = yb + 0.8, headY = yb + 1.0;
+    const shirt = matStd(0x2d4f7a, 0.0, 0.8);
+    const pants = matStd(0x2a2a30, 0.0, 0.9);
+    const skin = matStd(0xd9a77f, 0.0, 0.6);
+    const hair = matStd(0x2b1d14, 0.0, 0.7);
+    const shoe = matStd(0x111111, 0.0, 0.8);
+    const limbGeo = new THREE.CylinderGeometry(0.06, 0.06, 1, 8);
+    const armGeo = new THREE.CylinderGeometry(0.045, 0.045, 1, 8);
+    const limb = (a, b, m, geo) => { const mesh = new THREE.Mesh(geo, m); setLink(mesh, a, b); chassis.add(mesh); return mesh; };
+
+    // торс, голова, волосы
+    add(roundedBoxGeo(0.4, 0.44, 0.26, 0.08, 3), shirt, dx, yb + 0.64, zD - 0.02);
+    add(new THREE.SphereGeometry(0.11, 16, 12), skin, dx, headY, zD - 0.03);
+    add(new THREE.SphereGeometry(0.115, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2), hair, dx, headY + 0.01, zD - 0.03);
+
+    // ноги: бедро, голень, стопа
+    for (const k of [-0.1, 0.1]) {
+      limb(new THREE.Vector3(dx + k, hipY, zD), new THREE.Vector3(dx + k, hipY, zD + 0.42), pants, limbGeo);
+      limb(new THREE.Vector3(dx + k, hipY, zD + 0.42), new THREE.Vector3(dx + k, yb + 0.1, zD + 0.5), pants, limbGeo);
+      add(roundedBoxGeo(0.12, 0.1, 0.22, 0.03, 2), shoe, dx + k, yb + 0.06, zD + 0.6);
+    }
+
+    // руки: плечо → локоть (статично), локоть → кисть (следует за рулём)
+    const arms = [];
+    for (const k of [-1, 1]) {
+      const shoulder = new THREE.Vector3(dx + 0.22 * k, shoulderY, zD - 0.02);
+      const elbow = new THREE.Vector3(dx + 0.28 * k, shoulderY - 0.3, zD + 0.22);
+      const upper = limb(shoulder, elbow, shirt, armGeo);
+      const fore = limb(elbow, elbow, shirt, armGeo);
+      const hand = add(new THREE.SphereGeometry(0.04, 10, 8), skin, 0, 0, 0);
+      arms.push({ k, elbow, fore, hand });
+    }
+    g.userData.updateDriver = () => {
+      for (const a of arms) {
+        // кисти на ободе руля: 9 и 3 часа, с учётом поворота руля
+        const rimPt = new THREE.Vector3(0.17 * a.k * -1, 0, 0).applyEuler(steerWheel.rotation).add(steerWheel.position);
+        setLink(a.fore, a.elbow, rimPt);
+        a.hand.position.copy(rimPt);
+      }
+    };
+    g.userData.updateDriver();
+  }
+  for (const z of [zFS, zRS]) for (const x of [-0.36, 0.36]) {
+    add(roundedBoxGeo(0.42 * sw, 0.12, 0.45, 0.03, 2), seat, x * sw, yb + 0.3, z);
+    add(roundedBoxGeo(0.42 * sw, 0.5, 0.1, 0.03, 2), seat, x * sw, yb + 0.6, z - 0.25);
+  }
+
+  // стойки кузова A, B, C — по краям остекления, как в настоящей машине
+  const pillarGeo = new THREE.CylinderGeometry(0.022, 0.022, 1, 6);
+  const pillarMat = matStd(0x101010, 0.2, 0.6);
+  const pillar = (a, b) => {
+    const m = new THREE.Mesh(pillarGeo, pillarMat);
+    setLink(m, a, b);
+    chassis.add(m);
+  };
+  for (const sx of [-1, 1]) {
+    const X = sx * 0.7 * sw;
+    pillar(new THREE.Vector3(X, p.yBelt, p.sF - 0.02), new THREE.Vector3(X, p.yRoof, p.rF));
+    pillar(new THREE.Vector3(X, p.yBelt, zB), new THREE.Vector3(X, p.yRoof, (p.rF + p.rR) / 2));
+    pillar(new THREE.Vector3(X, p.yBelt, p.sR), new THREE.Vector3(X, p.yRoof, p.rR));
+  }
+
+  // рулевая колонка и центральная консоль
+  const column = new THREE.Mesh(pillarGeo, pillarMat);
+  setLink(column, new THREE.Vector3(0.36 * sw, 1.0, zFS + 0.5), new THREE.Vector3(0.3 * sw, p.yBelt + 0.12, zFS + 0.2));
+  chassis.add(column);
+  add(roundedBoxGeo(0.3 * sw, 0.12, 0.7, 0.03, 2), dash, 0, yb + 0.32, zFS - 0.1);
+
+  // двери: швы — тонкие тёмные полоски на боковине (не выступающие бруски), ручки, зеркала
+  const seamMat = new THREE.MeshLambertMaterial({ color: 0x0d0d0d, side: THREE.DoubleSide });
+  const seam = (zLen, yLen, xs, y, z) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(zLen, yLen), seamMat);
+    m.rotation.y = Math.PI / 2;
+    m.position.set(xs, y, z);
+    chassis.add(m);
+  };
+  for (const s of [-1, 1]) {
+    const x = s * (half + 0.0008);
+    // швы не должны проходить через колёсные ниши: в зоне ниши вертикальный шов начинается над ней,
+    // а порожек обрывается у ниш
+    const vSeam = zc => {
+      const inNotch = [0, d.L].some(wz => Math.abs(zc - wz) < Rn);
+      const yLo = inNotch ? WHEEL_R + Rn + 0.02 : yb + 0.1;
+      const yHi = p.yBelt - 0.02;
+      seam(0.006, yHi - yLo, x, (yLo + yHi) / 2, zc);
+    };
+    vSeam(zFD);
+    vSeam(zB);
+    vSeam(zRD);
+    const z0 = Math.max(zRD, Rn), z1 = Math.min(zFD, d.L - Rn);
+    if (z1 > z0) seam(z1 - z0, 0.006, x, yb + 0.12, (z0 + z1) / 2);
+    add(new THREE.BoxGeometry(0.02, 0.03, 0.09), trim, s * (half + 0.01), p.yBelt - 0.12, (zFD + zB) / 2 + 0.05);
+    add(new THREE.BoxGeometry(0.02, 0.03, 0.09), trim, s * (half + 0.01), p.yBelt - 0.12, (zB + zRD) / 2);
+    add(roundedBoxGeo(0.12, 0.1, 0.2, 0.03, 2), paint, s * (half + 0.06), p.yBelt + 0.03, p.sF - 0.15);
+
+    // Наружное боковое зеркало: кронштейн, корпус и отражающая поверхность.
+    // Наружное боковое зеркало: кронштейн, корпус и отражающая поверхность.
+const mirrorRoot = new THREE.Vector3(s * (half + 0.015), p.yBelt + 0.10, p.sF - 0.20);
+const mirrorTip = new THREE.Vector3(s * (half + 0.24), p.yBelt + 0.18, p.sF - 0.24);
+
+const mirrorArm = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.024, 1, 8), trim);
+mirrorArm.userData.excludeFromSideMirrors = true;
+setLink(mirrorArm, mirrorRoot, mirrorTip);
+chassis.add(mirrorArm);
+
+const mirrorHousing = new THREE.Mesh(roundedBoxGeo(0.22, 0.13, 0.34, 0.045, 3), trim);
+mirrorHousing.userData.excludeFromSideMirrors = true;
+mirrorHousing.position.set(s * (half + 0.29), p.yBelt + 0.20, p.sF - 0.24);
+mirrorHousing.rotation.y = s * 0.12;
+chassis.add(mirrorHousing);
+
+const mirrorSurface = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.085), matStd(0x7895a8, 0.75, 0.18));
+mirrorSurface.userData.excludeFromSideMirrors = true;
+mirrorSurface.position.set(s * (half + 0.405), p.yBelt + 0.20, p.sF - 0.24);
+mirrorSurface.rotation.y = s * Math.PI / 2;
+chassis.add(mirrorSurface);
+  }
+
+  // лючок бензобака: слева (-X), задняя четверть (у Kia — с левой стороны, по данным источников)
+  add(new THREE.BoxGeometry(0.01, 0.2, 0.2), matStd(0x3a3a3a, 0.2, 0.6), (half + 0.004), 0.62, -0.45);
+
+  // решётка радиатора: хромированная рамка и тёмная сетка; противотуманные фары
+  const chrome = matStd(0xc8ccd2, 0.9, 0.25);
+  const grilleMesh = matStd(0x101010, 0.3, 0.6);
+  add(roundedBoxGeo(d.w * 0.55, 0.2, 0.03, 0.01, 1), chrome, 0, (yb + p.yn) / 2 - 0.02, zF + 0.035);
+  add(roundedBoxGeo(d.w * 0.5, 0.17, 0.03, 0.01, 1), grilleMesh, 0, (yb + p.yn) / 2 - 0.02, zF + 0.05);
+  for (const x of [-0.6, 0.6]) {
+    const fog = add(new THREE.CylinderGeometry(0.06, 0.06, 0.03, 14), matStd(0xe0e0e0, 0.1, 0.4), x * sw, yb + 0.07, zF + 0.03);
+    fog.rotation.x = Math.PI / 2;
+  }
+  // шов крышки багажника у седана: тонкая полоска на крышке
+  if (d.sedan) {
+    const trunkSeam = new THREE.Mesh(new THREE.PlaneGeometry(d.w * 0.9, 0.006), seamMat);
+    trunkSeam.rotation.x = -Math.PI / 2;
+    trunkSeam.position.set(0, p.yRear + 0.002, p.sR);
+    chassis.add(trunkSeam);
+  }
+
+  // передние и задние фонари, поворотники, бамперы, номера
+  const lightY = (yb + p.yn) / 2 + 0.02;
+  const rearLightY = (yb + p.yRear) / 2 + 0.05;
+  g.userData.headlightsMesh = [];
+  g.userData.taillightsMesh = [];
+  g.userData.headlightsSpots = [];
+  for (const x of [-0.55, 0.55]) {
+    g.userData.headlightsMesh.push(add(roundedBoxGeo(0.42 * sw, 0.1, 0.05, 0.03, 2), lightW, x * sw, lightY, zF + 0.04));
+    g.userData.taillightsMesh.push(add(roundedBoxGeo(0.42 * sw, 0.1, 0.05, 0.03, 2), lightR, x * sw, rearLightY, zR - 0.04));
+    // прожекторы только у машины игрока: каждый SpotLight утяжеляет шейдеры всей сцены
+    if (opts.driver) {
+      const spot = new THREE.SpotLight(0xfff3d6, 0, 35, Math.PI / 5, 0.4, 1);
+      spot.position.set(x * sw, lightY, zF + 0.04);
+      spot.target.position.set(x * sw, 0, zF + 25);
+      chassis.add(spot); chassis.add(spot.target);
+      g.userData.headlightsSpots.push(spot);
+    }
+  }
+  add(roundedBoxGeo(0.14, 0.08, 0.04, 0.02, 2), ampL, 0.8 * sw, lightY - 0.1, zF + 0.03);
+  add(roundedBoxGeo(0.14, 0.08, 0.04, 0.02, 2), ampL, 0.8 * sw, rearLightY - 0.1, zR - 0.03);
+  add(roundedBoxGeo(0.14, 0.08, 0.04, 0.02, 2), ampR, -0.8 * sw, lightY - 0.1, zF + 0.03);
+  add(roundedBoxGeo(0.14, 0.08, 0.04, 0.02, 2), ampR, -0.8 * sw, rearLightY - 0.1, zR - 0.03);
+  add(roundedBoxGeo(d.w * 0.98, 0.16, 0.1, 0.04, 2), trim, 0, yb + 0.06, zF + 0.01);
+  add(roundedBoxGeo(d.w * 0.98, 0.16, 0.1, 0.04, 2), trim, 0, yb + 0.06, zR - 0.01);
+  add(new THREE.BoxGeometry(0.5 * sw, 0.14, 0.03), plate, 0, yb + 0.16, zF + 0.04);
+  add(new THREE.BoxGeometry(0.5 * sw, 0.14, 0.03), plate, 0, yb + 0.16, zR - 0.04);
+
+  // рейлинги и защита (кроссовер)
+  const roofTop = p.yRoof + 0.02;
+  if (d.rails) {
+    for (const x of [-0.7, 0.7]) add(roundedBoxGeo(0.06, 0.04, p.rF - p.rR, 0.01, 1), trim, x * sw, roofTop + 0.02, (p.rF + p.rR) / 2);
+    add(roundedBoxGeo(1.6 * sw, 0.1, 0.1, 0.03, 2), trim, 0, yb - 0.04, zF - 0.05);
+  }
+
+  // табличка «У»
+  if (opts.sign) {
+    const sign = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.3, 0.3),
+      new THREE.MeshBasicMaterial({ map: makeLearnerSignTexture(), side: THREE.DoubleSide })
+    );
+    sign.position.set(0, roofTop + 0.2, (p.rF + p.rR) / 2);
+    chassis.add(sign);
+    add(new THREE.BoxGeometry(0.05, 0.2, 0.05), trim, 0, roofTop + 0.1, (p.rF + p.rR) / 2);
+  }
+
+  // колёсные ниши: в кузове вырезаны дуги (см. нижний контур). Внутри каждой ниши — тёмный подкрылок,
+  // он закрывает стойку и пружину, поэтому снаружи видны только колесо и крыло над ним
+  const liner = new THREE.Shape();
+  liner.moveTo(-Rn, yb - WHEEL_R);
+  liner.lineTo(Rn, yb - WHEEL_R);
+  liner.lineTo(Rn, 0);
+  liner.absarc(0, 0, Rn, 0, Math.PI, false);
+  liner.lineTo(-Rn, yb - WHEEL_R);
+  const linerGeo = new THREE.ShapeGeometry(liner, 24);
+  const linerMat = matStd(0x161616, 0.0, 0.95);
+  linerMat.side = THREE.DoubleSide;
+  for (const s2 of [-1, 1]) for (const z of [0, d.L]) {
+    const pl = new THREE.Mesh(linerGeo, linerMat);
+    pl.rotation.y = Math.PI / 2;
+    pl.position.set(s2 * (wOff - 0.15), WHEEL_R, z);   // подкрылок за колесом, внутри ниши
+    chassis.add(pl);
+  }
+
+  // днище и выхлоп
+  add(roundedBoxGeo(d.w * 0.9, 0.05, d.L - 0.9, 0.02, 2), matStd(0x1b1b1b, 0.3, 0.8), 0, yb - 0.03, d.L / 2);
+  const exhaust = add(new THREE.CylinderGeometry(0.03, 0.03, 0.24, 8), matStd(0x2b2b2b, 0.8, 0.4), 0.25 * sw, yb - 0.06, zR + 0.1);
+  exhaust.rotation.x = Math.PI / 2;
+
+  // подвеска: стойка с пружиной, два нижних рычага и рулевая тяга (у передних колёс); рейка — на кузове
+  const linkMat = matStd(0x3a3e44, 0.6, 0.5);
+  const springMat = matStd(0x7a7f87, 0.8, 0.35);
+  const linkGeo = new THREE.CylinderGeometry(0.022, 0.022, 1, 6);
+  const coilGeo = new THREE.TorusGeometry(0.05, 0.008, 6, 12);
+  const rack = add(new THREE.CylinderGeometry(0.018, 0.018, 1.0, 6), linkMat, 0, yb + 0.04, d.L - 0.45);
+  rack.rotation.z = Math.PI / 2;
+  g.userData.links = [];
+  for (const [x, z, front] of [[-0.85, 0, false], [0.85, 0, false], [-0.85, d.L, true], [0.85, d.L, true]]) {
+    const sg = Math.sign(x);
+    const strut = new THREE.Mesh(linkGeo, linkMat);
+    strut.visible = false;   // стойка скрыта подкрылком и крылом, как в реальной машине
+    g.add(strut);
+    const coils = [];
+    for (let k = 0; k < 6; k++) {
+      const ring = new THREE.Mesh(coilGeo, springMat);
+      ring.visible = false;   // пружина скрыта внутри ниши
+      g.add(ring);
+      coils.push(ring);
+    }
+    const legA = new THREE.Mesh(linkGeo, linkMat), legB = new THREE.Mesh(linkGeo, linkMat);
+    g.add(legA, legB);
+    let tie = null;
+    if (front) { tie = new THREE.Mesh(linkGeo, linkMat); g.add(tie); }
+    g.userData.links.push({
+      origin: new THREE.Vector3(sg * wOff, WHEEL_R, z),
+      steer: front ? 1 : 0,
+      strut, coils, legA, legB, tie,
+      strutOff: new THREE.Vector3(0, 0.25, 0.02),         // верх ступицы относительно центра колеса
+      strutTop: new THREE.Vector3(sg * wOff * 0.5, yb + 0.7, z + 0.05),   // башня стойки в кузове
+      joinOff: new THREE.Vector3(0, -0.2, 0),              // нижний шаровой шарнир
+      legA_pt: new THREE.Vector3(sg * wOff * 0.45, yb + 0.02, z + 0.4),
+      legB_pt: new THREE.Vector3(sg * wOff * 0.45, yb + 0.02, z - 0.4),
+      tieOff: new THREE.Vector3(0, -0.05, -0.22),          // рычаг поворотного кулака
+      rackPt: new THREE.Vector3(sg * 0.42, yb + 0.04, d.L - 0.45)
+    });
+  }
+
+  // колёса: резина и диск; передние — поворотный узел, все — вращаются
+  // колесо: плоский протектор шириной 200 мм, диск с пятью спицами и ступичная крышка на обеих сторонах
+  const tireGeo = new THREE.CylinderGeometry(WHEEL_R, WHEEL_R, 0.2, 28);
+  const tireMat = matStd(0x141414, 0.0, 0.92);
+  const faceGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.012, 24);
+  const faceMat = matStd(0x2a2d32, 0.5, 0.4);
+  const spokeGeo = new THREE.BoxGeometry(0.05, 0.02, 0.15);
+  const spokeMat = matStd(0xb8bec5, 0.8, 0.3);
+  const hubGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.02, 14);
+  g.userData.wheels = [];
+  g.userData.frontPivots = [];
+  for (const [x, z, front] of [[-0.85, 0, false], [0.85, 0, false], [-0.85, d.L, true], [0.85, d.L, true]]) {
+    const pivot = new THREE.Group();
+    pivot.position.set(Math.sign(x) * wOff, WHEEL_R, z);
+    const axle = new THREE.Group();
+    axle.rotation.z = Math.PI / 2;
+    const w = new THREE.Group();
+    const tire = new THREE.Mesh(tireGeo, tireMat);
+    tire.castShadow = true;
+    w.add(tire);
+    for (const sy of [-1, 1]) {
+      const face = new THREE.Mesh(faceGeo, faceMat);
+      face.position.y = sy * 0.1;
+      w.add(face);
+      const hub = new THREE.Mesh(hubGeo, spokeMat);
+      hub.position.y = sy * 0.112;
+      w.add(hub);
+      for (let k = 0; k < 5; k++) {
+        const a = k * Math.PI * 2 / 5;
+        const sp = new THREE.Mesh(spokeGeo, spokeMat);
+        sp.position.set(Math.sin(a) * 0.12, sy * 0.112, Math.cos(a) * 0.12);
+        sp.rotation.y = a;
+        w.add(sp);
+      }
+    }
+    axle.add(w);
+    pivot.add(axle);
+    g.add(pivot);
+    g.userData.wheels.push(w);
+    if (front) g.userData.frontPivots.push(pivot);
+  }
+  g.userData.ampL = ampL;
+  g.userData.ampR = ampR;
+  g.userData.chassis = chassis;
+  g.userData.refreshLinks = (steer = 0) => updateLinks(g, chassis, steer);
+  updateLinks(g, chassis, 0);
+  return g;
+}
+
+// площадка
+// процедурная текстура асфальта: пятна разного тона и мелкая зернистость
+function makeAsphaltTexture() {
+  const size = 512;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d');
+  g.fillStyle = '#5b5e62';
+  g.fillRect(0, 0, size, size);
+  for (let i = 0; i < 90; i++) {
+    const x = Math.random() * size, y = Math.random() * size, r = 20 + Math.random() * 60;
+    const grad = g.createRadialGradient(x, y, 0, x, y, r);
+    grad.addColorStop(0, Math.random() < 0.5 ? 'rgba(40,42,45,0.15)' : 'rgba(125,129,133,0.12)');
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grad;
+    g.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  for (let i = 0; i < 9000; i++) {
+    g.fillStyle = Math.random() < 0.5
+      ? `rgba(28,30,33,${0.25 + Math.random() * 0.35})`
+      : `rgba(165,169,173,${0.15 + Math.random() * 0.25})`;
+    g.fillRect(Math.random() * size, Math.random() * size, 1 + Math.random() * 1.5, 1 + Math.random() * 1.5);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(80, 80);   // 400 м / 80 = плитка 5 м
+  tex.anisotropy = 8;
+  return tex;
+}
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), (() => { const t = makeAsphaltTexture(); return new THREE.MeshStandardMaterial({ map: t, bumpMap: t, bumpScale: 0.6, roughness: 0.92, metalness: 0 }); })());
+ground.receiveShadow = true;
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+
+// ================= парковочные боксы =================
+// Ряд A: въезд при z = 0, боксы уходят в -Z. Ряд B: въезд при z = AISLE, боксы уходят в +Z.
+// Между рядами проезд шириной AISLE.
+const bays = [];
+for (let i = 0; i < COLS; i++) {
+  const xc = (i - (COLS - 1) / 2) * BAY.w;
+  bays.push({ id: i + 1, xc, zE: 0, zB: -BAY.l, occupied: i % 2 === 0 });
+  bays.push({ id: COLS + i + 1, xc, zE: AISLE, zB: AISLE + BAY.l, occupied: i % 2 === 1 });
+}
+
+for (const bay of bays) {
+  const zc = (bay.zE + bay.zB) / 2;
+  const sign = Math.sign(bay.zB - bay.zE);   // -1 для ряда A, +1 для ряда B
+  const half = BAY.w / 2;
+
+  // разметка (визуальная, касание штрафуется само по себе)
+  bay.lines = [
+    addBox(0.12, 0.02, BAY.l, bay.xc - half, 0.01, zc, 0xffffff),
+    addBox(0.12, 0.02, BAY.l, bay.xc + half, 0.01, zc, 0xffffff),
+    addBox(BAY.w, 0.02, 0.12, bay.xc, 0.01, bay.zB, 0xffffff)
+  ];
+
+  // бордюр в глубине бокса (физическое препятствие)
+  addBox(BAY.w, 0.15, 0.2, bay.xc, 0.075, bay.zB + sign * 0.1, 0x8a8a8a);
+  blocks.push({
+    x1: bay.xc - half, x2: bay.xc + half,
+    z1: Math.min(bay.zB, bay.zB + sign * 0.2), z2: Math.max(bay.zB, bay.zB + sign * 0.2)
+  });
+
+  // припаркованный автомобиль в занятом боксе
+  if (bay.occupied) {
+    const d = DIM[PARKED_MODEL[bay.id]];
+    const lenP = d.rear + d.L + d.front;
+    const centerP = (d.L + d.front - d.rear) / 2;
+    const pc = makeCar(PARKED_COLOR[bay.id], d);
+    pc.position.set(bay.xc, 0, zc - centerP);
+    scene.add(pc);
+    blocks.push({ x1: bay.xc - d.w / 2, x2: bay.xc + d.w / 2, z1: zc - lenP / 2, z2: zc + lenP / 2 });
+  }
+}
+
+// ================= параллельная парковка =================
+// ряд вдоль проезда, машины стоят вдоль оси X; размеры предварительные
+const PAR = { l: 6.0, w: 2.2, gap: 0.2 };
+const PAR_ZC = -12.9;            // ось ряда
+const PAR_COUNT = 4;
+const PAR_MODEL = { 10: 'ceed', 12: 'xceed' };
+const PAR_COLOR = { 10: 0x9e9e9e, 12: 0xc0392b };
+for (let i = 0; i < PAR_COUNT; i++) {
+  const xc = (i - (PAR_COUNT - 1) / 2) * (PAR.l + PAR.gap);
+  const bay = { id: 2 * COLS + 1 + i, xc, zc: PAR_ZC, par: true, occupied: i === 1 || i === 3 };
+  bays.push(bay);
+  bay.lines = [
+    addBox(PAR.l, 0.02, 0.12, xc, 0.01, PAR_ZC + PAR.w / 2, 0xffffff),
+    addBox(0.12, 0.02, PAR.w, xc - PAR.l / 2, 0.01, PAR_ZC, 0xffffff),
+    addBox(0.12, 0.02, PAR.w, xc + PAR.l / 2, 0.01, PAR_ZC, 0xffffff)
+  ];
+  if (bay.occupied) {
+    const d = DIM[PAR_MODEL[bay.id]];
+    const lenP = d.rear + d.L + d.front;
+    const centerP = (d.L + d.front - d.rear) / 2;
+    const pc = makeCar(PAR_COLOR[bay.id], d);
+    pc.rotation.y = Math.PI / 2;               // вдоль оси X
+    pc.position.set(xc - centerP, 0, PAR_ZC);
+    scene.add(pc);
+    blocks.push({ x1: xc - lenP / 2, x2: xc + lenP / 2, z1: PAR_ZC - d.w / 2, z2: PAR_ZC + d.w / 2 });
+  }
+}
+// бордюр с дальней стороны ряда
+const PAR_CURB_Z = PAR_ZC - PAR.w / 2;
+const PAR_SPAN = PAR_COUNT * (PAR.l + PAR.gap);
+addBox(PAR_SPAN + 0.4, 0.15, 0.2, 0, 0.075, PAR_CURB_Z, 0x8a8a8a);
+blocks.push({ x1: -PAR_SPAN / 2 - 0.2, x2: PAR_SPAN / 2 + 0.2, z1: PAR_CURB_Z - 0.1, z2: PAR_CURB_Z + 0.1 });
+
+// конусы на концах рядов
+const cones = [
+  { x: -6, z: -0.5 }, { x: 6, z: -0.5 },
+  { x: -6, z: AISLE + 0.5 }, { x: 6, z: AISLE + 0.5 },
+  { x: -14, z: -9 }, { x: 14, z: -9 }
+];
+for (const c of cones) {
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(CONE_R, 0.6, 12), mat(0xff7a1a));
+  cone.position.set(c.x, 0.3, c.z);
+  scene.add(cone);
+}
+
+// наш автомобиль
+const car = makeCar(0x2d6cdf, DIM.ceed, { sign: true, driver: true });
+scene.add(car);
+
+// ================= ввод =================
+addEventListener('keydown', e => {
+  const act = document.activeElement;
+  if (act && act.tagName === 'INPUT') {
+    if (act.type === 'text' || act.type === 'url' || act.type === 'search') return;   // в текстовых полях клавиши не управляют машиной
+    act.blur();                                                                        // ползунки и файлы не должны забирать клавиши
+  }
+  keys[e.code] = true;
+  if (e.code === 'KeyI') {
+    engineRunning = !engineRunning;
+    if (!engineRunning) state.v = 0;
+  }
+  if (e.code === 'Space') {
+    e.preventDefault();
+    handbrakeActive = !handbrakeActive;
+  }
+  if (e.code === 'KeyL') lightsOn = !lightsOn;
+  if (e.code === 'KeyB') beltFastened = !beltFastened;
+  if (e.code === 'KeyH') {
+    uiHidden = !uiHidden;
+    document.body.classList.toggle('ds-ui-hidden', uiHidden);
+  }
+  if (e.code === 'KeyR') gear = 'R';
+  if (e.code === 'KeyF') gear = 'D';
+  if (e.code === 'KeyN') gear = 'N';
+  if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') gear = e.code.slice(-1);
+  if (e.code === 'KeyQ') signal = signal === 'L' ? null : 'L';   // левый
+  if (e.code === 'KeyE') signal = signal === 'R' ? null : 'R';   // правый
+  if (e.code === 'KeyC') setPreset((presetIndex + 1) % VIEW_PRESETS.length);
+  if (e.code === 'Backspace') { e.preventDefault(); reset(); }
+  if (e.code.startsWith('Arrow')) e.preventDefault();
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+// если окно потеряло фокус, отпускание клавиши могло не дойти: сбрасываем все нажатия, чтобы газ не «залипал»
+const clearKeys = () => { for (const k in keys) keys[k] = false; };
+addEventListener('blur', clearKeys);
+document.addEventListener('visibilitychange', () => { if (document.hidden) clearKeys(); });
+
+const canvas = renderer.domElement;
+canvas.addEventListener('pointerdown', e => {
+  dragBtn = e.button;
+  lastX = e.clientX; lastY = e.clientY;
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointerup', () => { dragBtn = -1; });
+canvas.addEventListener('pointercancel', () => { dragBtn = -1; });
+canvas.addEventListener('pointermove', e => {
+  if (dragBtn === 2) {            // ПКМ — вращение камеры
+    view.yaw += (e.clientX - lastX) * 0.006 * camSens;
+    view.el = clamp(view.el + (e.clientY - lastY) * 0.005 * camSens, 0.1, 1.45);
+  } else if (dragBtn === 0) {     // ЛКМ — руль
+    swDeg = clamp(swDeg - (e.clientX - lastX) * SW.degPerPx * steerSens, -SW.maxDeg, SW.maxDeg);   // тянем вправо — руль вправо
+  }
+  lastX = e.clientX; lastY = e.clientY;
+});
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  view.r = clamp(view.r * (1 + e.deltaY * 0.001), 5, 50);
+}, { passive: false });
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+// средняя кнопка не должна запускать автопрокрутку браузера и не влияет на педали
+canvas.addEventListener('mousedown', e => { if (e.button === 1) e.preventDefault(); });
+canvas.addEventListener('auxclick', e => e.preventDefault());
+
+// экранный руль: его можно взять мышью и крутить, как настоящий
+const wheelSvg = document.getElementById('wheelSvg');
+let wheelDrag = false, wheelLastAng = 0;
+const wheelAngle = e => {
+  const r = wheelSvg.getBoundingClientRect();
+  return Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)) * 180 / Math.PI;
+};
+wheelSvg.addEventListener('pointerdown', e => {
+  wheelDrag = true;
+  wheelLastAng = wheelAngle(e);
+  wheelSvg.setPointerCapture(e.pointerId);
+  wheelSvg.style.cursor = 'grabbing';
+});
+wheelSvg.addEventListener('pointermove', e => {
+  if (!wheelDrag) return;
+  const a = wheelAngle(e);
+  let d = a - wheelLastAng;                 // поворот экранного руля по часовой стрелке
+  if (d > 180) d -= 360;
+  if (d < -180) d += 360;
+  swDeg = clamp(swDeg - d, -SW.maxDeg, SW.maxDeg);   // по часовой — вправо, как и у ЛКМ
+  wheelLastAng = a;
+});
+const endWheelDrag = () => { wheelDrag = false; wheelSvg.style.cursor = 'grab'; };
+wheelSvg.addEventListener('pointerup', endWheelDrag);
+wheelSvg.addEventListener('pointercancel', endWheelDrag);
+
+// перетаскивание экранного руля за полоску сверху
+const wheelHud = document.getElementById('wheelHud');
+const wheelGrip = document.getElementById('wheelGrip');
+{
+  const r0 = wheelHud.getBoundingClientRect();
+  wheelHud.style.left = r0.left + 'px';
+  wheelHud.style.top = r0.top + 'px';
+  wheelHud.style.bottom = 'auto';
+}
+let gripDrag = false, gripDx = 0, gripDy = 0;
+wheelGrip.addEventListener('pointerdown', e => {
+  gripDrag = true;
+  const r = wheelHud.getBoundingClientRect();
+  gripDx = e.clientX - r.left;
+  gripDy = e.clientY - r.top;
+  wheelGrip.setPointerCapture(e.pointerId);
+});
+wheelGrip.addEventListener('pointermove', e => {
+  if (!gripDrag) return;
+  const w = wheelHud.offsetWidth, h = wheelHud.offsetHeight;
+  wheelHud.style.left = clamp(e.clientX - gripDx, 0, innerWidth - w) + 'px';
+  wheelHud.style.top = clamp(e.clientY - gripDy, 0, innerHeight - h) + 'px';
+});
+const endGrip = () => { gripDrag = false; };
+wheelGrip.addEventListener('pointerup', endGrip);
+wheelGrip.addEventListener('pointercancel', endGrip);
+
+// зеркало заднего вида на экране: отражение — тот же вид, что в 3D-зеркале (инверсия как у зеркала)
+const rearMirror = document.getElementById('rearMirror');
+const mirrorCanvas = document.getElementById('mirrorCanvas');
+const mctx = mirrorCanvas.getContext('2d');
+const mirrorImg = mctx.createImageData(512, 128);
+const mirrorPix = new Uint8Array(512 * 128 * 4);
+rearMirror.style.left = Math.max(0, (innerWidth - rearMirror.offsetWidth) / 2) + 'px';
+function updateMirrorHud() {
+  renderer.readRenderTargetPixels(mirrorRT, 0, 0, 512, 128, mirrorPix);
+  const W = 512, H = 128, d = mirrorImg.data;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const s = ((H - 1 - y) * W + (W - 1 - x)) * 4;   // GL читает снизу вверх; инверсия по горизонтали
+      const t = (y * W + x) * 4;
+      d[t] = mirrorPix[s]; d[t + 1] = mirrorPix[s + 1]; d[t + 2] = mirrorPix[s + 2]; d[t + 3] = 255;
+    }
+  }
+  mctx.putImageData(mirrorImg, 0, 0);
+}
+let mirrorDrag = false, mDx = 0, mDy = 0;
+rearMirror.addEventListener('pointerdown', e => {
+  mirrorDrag = true;
+  const r = rearMirror.getBoundingClientRect();
+  mDx = e.clientX - r.left;
+  mDy = e.clientY - r.top;
+  rearMirror.setPointerCapture(e.pointerId);
+});
+rearMirror.addEventListener('pointermove', e => {
+  if (!mirrorDrag) return;
+  const w = rearMirror.offsetWidth, h = rearMirror.offsetHeight;
+  rearMirror.style.left = clamp(e.clientX - mDx, 0, innerWidth - w) + 'px';
+  rearMirror.style.top = clamp(e.clientY - mDy, 0, innerHeight - h) + 'px';
+});
+const endMirrorDrag = () => { mirrorDrag = false; };
+rearMirror.addEventListener('pointerup', endMirrorDrag);
+rearMirror.addEventListener('pointercancel', endMirrorDrag);
+
+// размер зеркала: ширина задаётся ползунком, высота — по пропорции 4:1
+const mirrorSizeInput = document.getElementById('mirrorSize');
+const mirrorSizeVal = document.getElementById('mirrorSizeVal');
+mirrorSizeInput.addEventListener('input', () => {
+  const w = +mirrorSizeInput.value;
+  rearMirror.style.width = w + 'px';
+  mirrorSizeVal.textContent = w;
+  rearMirror.style.left = clamp(parseFloat(rearMirror.style.left) || 0, 0, innerWidth - w) + 'px';
+  rearMirror.style.top = clamp(parseFloat(rearMirror.style.top) || 0, 0, innerHeight - rearMirror.offsetHeight) + 'px';
+});
+
+const bindSens = (inputId, valId, set) => {
+  const input = document.getElementById(inputId), out = document.getElementById(valId);
+  input.addEventListener('input', () => { set(+input.value); out.textContent = (+input.value).toFixed(1); });
+};
+bindSens('steerRange', 'steerVal', v => { steerSens = v; });
+bindSens('camRange', 'camVal', v => { camSens = v; });
+
+function setPreset(i) {
+  presetIndex = i;
+  const p = VIEW_PRESETS[i];
+  view.yaw = 0; view.r = p.r; view.el = p.el;
+}
+
+// ================= геометрия =================
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+// четыре угла кузова в мировых координатах
+function corners(s) {
+  const fx = Math.sin(s.h), fz = Math.cos(s.h);
+  const rx = Math.cos(s.h), rz = -Math.sin(s.h);
+  const pts = [];
+  for (const f of [-CAR.rear, CAR.L + CAR.front])
+    for (const l of [-CAR.half, CAR.half])
+      pts.push([s.x + fx * f + rx * l, s.z + fz * f + rz * l]);
+  return pts;
+}
+
+function carHits(s) {
+  for (const [x, z] of corners(s))
+    for (const b of blocks)
+      if (x >= b.x1 && x <= b.x2 && z >= b.z1 && z <= b.z2) return true;
+
+  // конус: центр в системе машины внутри кузова, расширенного на радиус
+  const fx = Math.sin(s.h), fz = Math.cos(s.h);
+  const rx = Math.cos(s.h), rz = -Math.sin(s.h);
+  for (const c of cones) {
+    const dx = c.x - s.x, dz = c.z - s.z;
+    const f = dx * fx + dz * fz, l = dx * rx + dz * rz;
+    if (f >= -CAR.rear - CONE_R && f <= CAR.L + CAR.front + CONE_R && Math.abs(l) <= CAR.half + CONE_R) return true;
+  }
+  return false;
+}
+
+// полностью ли машина внутри бокса (с запасом 2 см от линий и въезда)
+// прямоугольник бокса в мировых координатах
+function bayRect(bay) {
+  if (bay.par) return { x1: bay.xc - PAR.l / 2, x2: bay.xc + PAR.l / 2, z1: bay.zc - PAR.w / 2, z2: bay.zc + PAR.w / 2 };
+  const half = BAY.w / 2;
+  return { x1: bay.xc - half, x2: bay.xc + half, z1: Math.min(bay.zE, bay.zB), z2: Math.max(bay.zE, bay.zB) };
+}
+
+// полностью ли машина внутри бокса (с запасом 2 см от линий и въезда)
+function insideBay(s, bay) {
+  const r = bayRect(bay);
+  return corners(s).every(([x, z]) => x > r.x1 + 0.02 && x < r.x2 - 0.02 && z > r.z1 + 0.02 && z < r.z2 - 0.02);
+}
+
+// свободный бокс, в котором машина сейчас стоит целиком
+function bayUnderCar(s) {
+  for (const b of bays) if (!b.occupied && insideBay(s, b)) return b;
+  return null;
+}
+
+// ================= логика =================
+// ===== коробка передач: N, R, 1–3 (ручные), D (автомат 1–5) =====
+const V_MAX = 180 / 3.6;                           // 180 км/ч, м/с
+const REV_KMH = 15;                                // максимум задним ходом
+const REV_ACC = 1.2;                               // разгон задним ходом, м/с²
+const GEARS_KMH = { 1: 30, 2: 60, 3: 100, 4: 140, 5: 180 };   // предел скорости по ступени, км/ч
+const GEAR_ACC = { 1: 3.0, 2: 2.6, 3: 2.2, 4: 1.8, 5: 1.4 }; // тяга по ступени, м/с²
+const AUTO_UP = { 1: 25, 2: 48, 3: 80, 4: 120 };   // км/ч: переход вверх с ступени (ниже предела ступени)
+const AUTO_DOWN = { 2: 18, 3: 36, 4: 60, 5: 90 };   // км/ч: переход вниз на ступень ниже
+
+// тяга сходит на нет у предела скорости ступени (плавный ограничитель)
+function taperAt(v, vmax) {
+  return v < 0.97 * vmax ? 1 : Math.max(0, (vmax - v) / (0.03 * vmax));
+}
+function currentGearNum() {
+  if (gear === 'D') return autoGear;
+  if (gear === '1' || gear === '2' || gear === '3') return Number(gear);
+  return 0;
+}
+// ускорение от двигателя (м/с²) при нажатом газе; на нейтрали и без газа — 0
+// торможение двигателем (м/с²) при отпущенном газе: сильнее на низких передачах; на нейтрали его нет
+const ENGINE_BRAKE = { 1: 1.2, 2: 0.9, 3: 0.7, 4: 0.55, 5: 0.45, R: 1.0 };
+const ROLL_RES = 0.12;                        // сопротивление качению, м/с²
+function engineAccel(throttle) {
+  if (gear === 'N') return 0;
+  if (!throttle) {
+    if (Math.abs(state.v) < 0.05) return 0;
+    const key = gear === 'R' ? 'R' : currentGearNum();
+    const eb = ENGINE_BRAKE[key] * Math.min(1, Math.abs(state.v) / 1.0);   // плавно у нуля
+    return -Math.sign(state.v) * eb;
+  }
+  if (gear === 'R') return -REV_ACC * taperAt(-state.v, REV_KMH / 3.6);
+  const g = currentGearNum();
+  return GEAR_ACC[g] * taperAt(state.v, GEARS_KMH[g] / 3.6);
+}
+// текст передачи для HUD и приборной панели
+function gearLabel() {
+  return gear === 'D' ? 'D' + autoGear : gear;
+}
+
+function update(dt) {
+  // автоматическое переключение D (1–5) по скорости, с гистерезисом
+  if (gear === 'D') {
+    const kmh = Math.abs(state.v) * 3.6;
+    if (autoGear < 5 && kmh > AUTO_UP[autoGear]) autoGear++;
+    else if (autoGear > 1 && kmh < AUTO_DOWN[autoGear]) autoGear--;
+  }
+  // тяга от W в текущей передаче; на нейтрали тяги нет
+  const throttle = engineRunning && !handbrakeActive && !!(keys.KeyW || keys.ArrowUp);
+  let a = engineAccel(throttle ? 1 : 0);
+  // сопротивление качению и воздуха — всегда против движения
+  if (state.v !== 0) a -= Math.sign(state.v) * (ROLL_RES + 0.00015 * state.v * state.v + 0.002 * Math.abs(state.v));
+  const vBefore = state.v;
+  state.v += a * dt;
+  // без газа сопротивления не могут развернуть машину: доехав до нуля, она останавливается
+  if (!throttle && vBefore !== 0 && Math.sign(state.v) !== Math.sign(vBefore)) state.v = 0;
+  // тормоз S: гасит скорость до нуля, но не разворачивает
+  if (keys.KeyS || keys.ArrowDown) {
+    const d = 6 * dt;
+    state.v = state.v > 0 ? Math.max(0, state.v - d) : Math.min(0, state.v + d);
+  }
+  // ручник: быстрое гашение скорости
+  if (handbrakeActive) state.v *= Math.pow(0.02, dt);
+  state.v = clamp(state.v, -REV_KMH / 3.6, V_MAX);
+
+  // руль: плавно к цели, возврат к центру
+  const turn = ((keys.KeyA || keys.ArrowLeft) ? 1 : 0) - ((keys.KeyD || keys.ArrowRight) ? 1 : 0);
+  // отпустили ЛКМ на ходу — руль возвращается в центр; на стоянке остаётся в том положении, в котором был
+  if (dragBtn !== 0 && Math.abs(state.v) > 0.05) swDeg += clamp(-swDeg, -720 * dt, 720 * dt);
+  const mouseTarget = swDeg * Math.PI / 180 / SW.ratio;
+  const target = turn !== 0 ? turn * CAR.maxSteer : mouseTarget;
+  const rate = turn !== 0 ? 2.5 : 6.0;
+  state.steer += clamp(target - state.steer, -rate * dt, rate * dt);
+
+  // кинематическая модель «велосипед»
+  const prev = { x: state.x, z: state.z, h: state.h };
+  state.h += (state.v / CAR.L) * Math.tan(state.steer) * dt;
+  state.x += Math.sin(state.h) * state.v * dt;
+  state.z += Math.cos(state.h) * state.v * dt;
+
+  // столкновение: откат к предыдущему кадру, одно касание на контакт
+  if (carHits(state)) {
+    if (!contact) collisions++;
+    contact = true;
+    Object.assign(state, prev, { v: 0 });
+  } else {
+    contact = false;
+  }
+
+  wheelSpin += state.v * dt / WHEEL_R;
+
+  // подвеска: продольный тангаж от ускорения и поперечный крен от поворота
+  const aLong = dt > 0 ? clamp((state.v - prevV) / dt, -4, 4) : 0;
+  prevV = state.v;
+  const pitchT = clamp(-aLong * 0.006, -0.03, 0.03);     // разгон — нос вверх, торможение — нос вниз
+  const rollT = clamp(-state.v * state.steer * 0.02, -0.04, 0.04);   // поворот — кузов кренится наружу
+  const kk = Math.min(1, dt * 6);
+  pitchCur += (pitchT - pitchCur) * kk;
+  rollCur += (rollT - rollCur) * kk;
+  car.userData.chassis.rotation.x = pitchCur;
+  car.userData.chassis.rotation.z = rollCur;
+
+  // парковка: внутри свободного бокса и стоим 1.5 с
+  elapsed += dt;
+  const bay = bayUnderCar(state);
+  const stopped = Math.abs(state.v) < 0.05;
+  holdT = bay && stopped ? holdT + dt : 0;
+  if (holdT > 1.5 && !finished) {
+    finished = true;
+    finishedBay = bay;
+    score = Math.max(0, 100 - 15 * collisions);
+    bay.lines.forEach(m => m.material.color.set(0x66ff66));
+  }
+
+  refreshStatus(bay);
+}
+
+let lastStatusText = '';
+function refreshStatus(bay) {
+  let text;
+  if (!engineRunning) text = 'Двигатель выключен. Нажмите I для запуска.';
+  else if (handbrakeActive) text = 'Стояночный тормоз активен. Снимите с ручника (Space).';
+  else if (!beltFastened) text = 'Внимание! Пристегните ремень (клавиша B).';
+  else if (finished) text = `Парковка в боксе №${finishedBay.id} выполнена! Балл: ${score}`;
+  else if (contact) text = 'Касание! Отъедьте назад';
+  else if (bay && holdT > 0) text = `Бокс №${bay.id}: держите остановку...`;
+  else if (bay) text = `Бокс №${bay.id} — остановитесь`;
+  else text = 'Заезжайте задним ходом в свободный бокс';
+  if (text !== lastStatusText) { statusEl.textContent = text; lastStatusText = text; }
+}
+
+function reset() {
+  Object.assign(state, START, { v: 0, steer: 0 });
+  collisions = 0; elapsed = 0; holdT = 0; finished = false; contact = false; score = 0;
+  finishedBay = null;
+  wheelSpin = 0;
+  swDeg = 0;
+  signal = null;
+  autoGear = 1;
+  engineRunning = false;
+  handbrakeActive = true;
+  beltFastened = false;
+  lightsOn = false;
+  bays.forEach(b => b.lines.forEach(m => m.material.color.set(0xffffff)));
+  updateCamera(1);
+}
+
+// ================= камера =================
+const camTarget = new THREE.Vector3();
+function updateCamera(k) {
+  // точка, за которой следим: центр кузова на высоте над дорогой
+  const fx = Math.sin(state.h), fz = Math.cos(state.h);
+  const cx = state.x + fx * CENTER, cz = state.z + fz * CENTER;
+  // направление «сзади» плюс ручной поворот мышью
+  const a = state.h + Math.PI + view.yaw;
+  const horiz = view.r * Math.cos(view.el);
+  const vert = view.r * Math.sin(view.el);
+  camTarget.set(cx + Math.sin(a) * horiz, 1 + vert, cz + Math.cos(a) * horiz);
+  camera.position.lerp(camTarget, k);
+  camera.lookAt(cx, 1, cz);
+}
+
+function syncCar(now) {
+  car.position.set(state.x, 0, state.z);
+  car.rotation.y = state.h;
+  car.userData.refreshLinks(state.steer);
+  for (const p of car.userData.frontPivots) p.rotation.y = ackermannAngle(Math.sign(p.position.x), state.steer);
+  car.userData.steerWheel.rotation.z = swDeg * Math.PI / 180;
+  if (car.userData.updateDriver) car.userData.updateDriver();
+  for (const w of car.userData.wheels) w.rotation.y = wheelSpin;
+  const on = Math.floor(now / 400) % 2 === 0;   // мигание ~1,25 Гц
+  car.userData.ampL.emissiveIntensity = signal === 'L' && on ? 1.5 : 0;
+  car.userData.ampR.emissiveIntensity = signal === 'R' && on ? 1.5 : 0;
+  const isBraking = !!(keys.KeyS || keys.ArrowDown) || (gear === 'R' && state.v < -0.1);
+  for (const spot of car.userData.headlightsSpots) {
+    spot.intensity = lightsOn ? 3.0 : 0;
+  }
+  for (const m of car.userData.headlightsMesh) {
+    m.material.emissiveIntensity = lightsOn ? 1.0 : (engineRunning ? 0.3 : 0.0);
+  }
+  for (const m of car.userData.taillightsMesh) {
+    m.material.emissiveIntensity = isBraking ? 1.5 : (engineRunning ? 0.4 : 0.0);
+  }
+}
+
+function updateHud() {
+  el('gear').textContent = gearLabel();
+  el('speed').textContent = Math.round(Math.abs(state.v) * 3.6);
+  el('steer').textContent = Math.round(swDeg);
+  el('coll').textContent = collisions;
+  el('time').textContent = elapsed.toFixed(1);
+  el('sig').textContent = signal === 'L' ? 'левый' : signal === 'R' ? 'правый' : 'выкл';
+  document.getElementById('wheelRot').setAttribute('transform', `rotate(${-swDeg} 50 50)`);
+}
+
+// ================= цикл =================
+let last = performance.now();
+let frameNo = 0;
+function loop(now) {
+  const dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+  if (!finished) {
+    // при высокой скорости делим шаг, чтобы машина не проскакивала тонкие бордюры
+    const steps = Math.min(20, Math.max(1, Math.ceil(Math.abs(state.v) * dt / 0.1)));
+    for (let i = 0; i < steps; i++) update(dt / steps);
+  }
+  syncCar(now);
+  updateCamera(0.12);
+  updateHud();
+  // тени пересчитываются только в основном рендере: проходы зеркал используют уже готовую карту
+  renderer.shadowMap.autoUpdate = false;
+  renderMirror();
+  updateMirrorHud();
+  if (window.__dsRenderSideMirrors && frameNo++ % 2 === 0) window.__dsRenderSideMirrors();
+  renderer.shadowMap.autoUpdate = true;
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+
+// окружение: деревья по периметру, фонари у края парковки, дома на горизонте
+const trunkMat = matStd(0x5a4a3a, 0.0, 0.9);
+const leafMat = matStd(0x3d6b35, 0.0, 0.85);
+for (let i = 0; i < 48; i++) {
+  const a = i / 48 * Math.PI * 2;
+  const r = 42 + (i % 3) * 6;
+  const x = Math.cos(a) * r, z = Math.sin(a) * r + 2;
+  if (Math.abs(x) < 18 && z > -20 && z < 16) continue;
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.3, 2.5, 8), trunkMat);
+  trunk.position.set(x, 1.25, z);
+  const crown = new THREE.Mesh(new THREE.ConeGeometry(1.9, 3.8, 9), leafMat);
+  crown.position.set(x, 4.2, z);
+  trunk.castShadow = crown.castShadow = true;
+  scene.add(trunk, crown);
+}
+const poleMat = matStd(0x3a3f46, 0.6, 0.5);
+const lampMat = new THREE.MeshStandardMaterial({ color: 0xfff4d6, emissive: 0xfff0c0, emissiveIntensity: 0.8 });
+for (const x of [-20, 20]) for (let z = -22; z <= 16; z += 9) {
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 6, 8), poleMat);
+  pole.position.set(x, 3, z);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.12, 0.3), lampMat);
+  head.position.set(x, 6, z);
+  pole.castShadow = true;
+  scene.add(pole, head);
+}
+const buildingCols = [0xb8b0a3, 0xd9d2c5, 0x8a9199, 0xc4a98a];
+for (let i = 0; i < 12; i++) {
+  const a = i / 12 * Math.PI * 2 + 0.2;
+  const h = 8 + (i * 37 % 14);
+  const b = new THREE.Mesh(new THREE.BoxGeometry(10, h, 10), matStd(buildingCols[i % buildingCols.length], 0.0, 0.8));
+  b.position.set(Math.cos(a) * 95, h / 2, Math.sin(a) * 95);
+  b.castShadow = true;
+  scene.add(b);
+}
+
+// отражения окружения для глянцевых материалов
+const envRT = new THREE.WebGLCubeRenderTarget(256);
+const envCam = new THREE.CubeCamera(0.5, 500, envRT);
+envCam.position.set(0, 1.2, 4);
+envCam.update(renderer, scene);
+scene.traverse(o => {
+  if (o.isMesh && o.material && o.material.isMeshStandardMaterial && !o.material.envMap) {
+    o.material.envMap = envRT.texture;
+    o.material.envMapIntensity = 0.6;
+  }
+});
+
+// ===== зеркало заднего вида: 30 × 7,5 см, над ветровым стеклом =====
+// в зеркале — отражение задней части: камера стоит в точке глаза и смотрит назад через заднее стекло
+const MIRROR_EYE = new THREE.Vector3(0, 1.3, 1.75);
+const mirrorRT = new THREE.WebGLRenderTarget(512, 128, { minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+mirrorRT.texture.wrapS = THREE.RepeatWrapping;
+mirrorRT.texture.repeat.set(-1, 1);   // зеркальная инверсия, как у настоящего зеркала
+mirrorRT.texture.offset.set(1, 0);
+const mirrorCam = new THREE.PerspectiveCamera(7.5, 4, 0.2, 400);   // ~28° по горизонтали
+const mirrorGlass = new THREE.Mesh(new THREE.PlaneGeometry(0.30, 0.075), new THREE.MeshBasicMaterial({ map: mirrorRT.texture }));
+mirrorGlass.position.set(0, 1.3, 1.75);
+mirrorGlass.rotation.y = Math.PI;     // лицевая сторона смотрит на водителя
+const mirrorBody = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.095, 0.02), matStd(0x151515, 0.2, 0.6));
+mirrorBody.position.set(0, 1.3, 1.762);
+const mirrorStalk = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 1, 6), matStd(0x151515, 0.2, 0.6));
+setLink(mirrorStalk, new THREE.Vector3(0, 1.37, 1.76), new THREE.Vector3(0, 1.345, 1.762));
+car.userData.chassis.add(mirrorGlass, mirrorBody, mirrorStalk);
+function renderMirror() {
+  const ch = car.userData.chassis;
+  car.updateMatrixWorld(true);
+  mirrorCam.position.copy(ch.localToWorld(MIRROR_EYE.clone()));
+  mirrorCam.lookAt(ch.localToWorld(new THREE.Vector3(0, 1.3, -60)));
+  mirrorGlass.visible = false;
+  renderer.setRenderTarget(mirrorRT);
+  renderer.render(scene, mirrorCam);
+  renderer.setRenderTarget(null);
+  mirrorGlass.visible = true;
+}
+
+// ===== город из OpenStreetMap: дороги, здания, светофоры (файл JSON из Overpass) =====
+const OSM_ROAD_W = {
+  motorway: 12, trunk: 10, primary: 9, secondary: 8, tertiary: 7,
+  residential: 6, unclassified: 5.5, service: 4, living_street: 5
+};
+const OSM_OFFSET = { x: 0, z: -260 }; // отодвигаем город дальше, чтобы не задевать деревья и дома по периметру
+let osmGroup = null;
+let osmSpawn = null; // точка спавна на первой дороге загруженного города
+
+// ленточная дорога: полоса шириной 2·halfW вдоль ломаной линии
+function addRibbon(pts, halfW, y, pos, idx) {
+  const n = pts.length, base = pos.length / 3;
+  const perp = (a, b) => {
+    const dx = b.x - a.x, dz = b.z - a.z;
+    const L = Math.hypot(dx, dz) || 1;
+    return { x: -dz / L, z: dx / L };
+  };
+  for (let i = 0; i < n; i++) {
+    const p = pts[i];
+    let nx = 0, nz = 0;
+    if (i > 0) { const q = perp(pts[i - 1], p); nx += q.x; nz += q.z; }
+    if (i < n - 1) { const q = perp(p, pts[i + 1]); nx += q.x; nz += q.z; }
+    const L = Math.hypot(nx, nz) || 1;
+    nx /= L; nz /= L;
+    pos.push(p.x + nx * halfW, y, p.z + nz * halfW, p.x - nx * halfW, y, p.z - nz * halfW);
+  }
+  for (let i = 0; i < n - 1; i++) {
+    const a = base + 2 * i;
+    idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+  }
+}
+
+function loadOsm(data) {
+  // 1. Очищаем прошлую загрузку и освобождаем память GPU
+  if (osmGroup) {
+    scene.remove(osmGroup);
+    osmGroup.traverse(o => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) o.material.dispose();
+    });
+    osmGroup = null;
+  }
+  osmSpawn = null;
+  for (let i = blocks.length - 1; i >= 0; i--) if (blocks[i].osm) blocks.splice(i, 1);
+  for (let i = cones.length - 1; i >= 0; i--) if (cones[i].osm) cones.splice(i, 1);
+
+  const nodes = new Map();
+  for (const el of (data.elements || [])) if (el.type === 'node') nodes.set(el.id, el);
+  const ways = (data.elements || []).filter(el => el.type === 'way' && el.nodes);
+
+  // 2. Центр выборки и проекция «широта/долгота → метры»
+  let la = 0, lo = 0, cnt = 0;
+  for (const n of nodes.values()) { la += n.lat; lo += n.lon; cnt++; }
+  if (!cnt) return { roads: 0, buildings: 0, lights: 0 };
+  const c = { lat: la / cnt, lon: lo / cnt };
+  const R = 6371000, k = Math.PI / 180;
+  const proj = n => ({
+    x: (n.lon - c.lon) * k * R * Math.cos(c.lat * k) + OSM_OFFSET.x,
+    z: -(n.lat - c.lat) * k * R + OSM_OFFSET.z // север — в -Z
+  });
+
+  // Расширяем землю и отодвигаем туман, чтобы город не обрывался в пустоту
+  ground.scale.set(10, 10, 1);
+  ground.material.map.repeat.set(800, 800);
+  scene.fog.near = 120;
+  scene.fog.far = 450;
+
+  osmGroup = new THREE.Group();
+  scene.add(osmGroup);
+  let roads = 0, buildings = 0, lights = 0;
+
+  // 3. Дороги одним мешем
+  const roadPos = [], roadIdx = [];
+  for (const w of ways) {
+    const hw = w.tags && w.tags.highway;
+    if (!hw || !OSM_ROAD_W[hw]) continue;
+    const pts = w.nodes.map(id => nodes.get(id)).filter(Boolean).map(proj);
+    if (pts.length < 2) continue;
+
+    // Запоминаем старт первой дороги для телепортации машины
+    if (!osmSpawn) {
+      const a0 = pts[0], a1 = pts[Math.min(1, pts.length - 1)];
+      const ang = Math.atan2(a1.x - a0.x, a1.z - a0.z);
+      osmSpawn = { x: a0.x, z: a0.z, h: ang };
+    }
+
+    let width = parseFloat(w.tags.width);
+    if (isNaN(width)) {
+      const lanes = parseInt(w.tags.lanes, 10);
+      width = !isNaN(lanes) ? lanes * 3.5 : OSM_ROAD_W[hw];
+    }
+    addRibbon(pts, width / 2, 0.015, roadPos, roadIdx);
+    roads++;
+  }
+  if (roadPos.length) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(roadPos, 3));
+    g.setIndex(roadIdx);
+    g.computeVertexNormals();
+    const roadMat = new THREE.MeshStandardMaterial({
+      color: 0x3b3e42, roughness: 0.9, metalness: 0,
+      polygonOffset: true, polygonOffsetFactor: -1, side: THREE.DoubleSide
+    });
+    const roadMesh = new THREE.Mesh(g, roadMat);
+    roadMesh.receiveShadow = true;
+    osmGroup.add(roadMesh);
+  }
+
+  // 4. Здания: выдавленный контур + обводка граней для читаемости
+  const bMat = matStd(0xb9b2a4, 0.0, 0.85);
+  const edgeMat = new THREE.LineBasicMaterial({ color: 0x7d766b });
+  for (const w of ways) {
+    if (!w.tags || !w.tags.building || buildings >= 800) continue;
+    const pts = w.nodes.map(id => nodes.get(id)).filter(Boolean).map(proj);
+    if (pts.length < 4) continue;
+    const h = parseFloat(w.tags.height) || (parseFloat(w.tags['building:levels']) || 2) * 3.2;
+    const shape = new THREE.Shape(pts.map(p => new THREE.Vector2(p.x, -p.z)));
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false });
+    geo.rotateX(-Math.PI / 2);
+    const mesh = new THREE.Mesh(geo, bMat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+
+    const line = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat);
+    mesh.add(line);
+    osmGroup.add(mesh);
+
+    // Коллизия по AABB контура
+    let x1 = Infinity, x2 = -Infinity, z1 = Infinity, z2 = -Infinity;
+    for (const p of pts) {
+      x1 = Math.min(x1, p.x); x2 = Math.max(x2, p.x);
+      z1 = Math.min(z1, p.z); z2 = Math.max(z2, p.z);
+    }
+    blocks.push({ x1, x2, z1, z2, osm: true });
+    buildings++;
+  }
+
+  // 5. Светофоры
+  const sPoleMat = matStd(0x3a3f46, 0.6, 0.5);
+  const sHeadMat = new THREE.MeshStandardMaterial({ color: 0x1e7a2e, emissive: 0x0d3d17, emissiveIntensity: 0.6 });
+  for (const n of nodes.values()) {
+    if (!n.tags || n.tags.highway !== 'traffic_signals') continue;
+    const p = proj(n);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 4.2, 8), sPoleMat);
+    pole.position.set(p.x, 2.1, p.z);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.75, 0.25), sHeadMat);
+    head.position.set(p.x, 4.1, p.z);
+    osmGroup.add(pole, head);
+    cones.push({ x: p.x, z: p.z, osm: true }); // столб учитывается как круглое препятствие
+    lights++;
+  }
+
+  return { roads, buildings, lights };
+}
+
+// Перенос машины в город или обратно на автодром
+function teleportToCity() {
+  if (!osmSpawn) return;
+  Object.assign(state, osmSpawn, { v: 0, steer: 0 });
+  swDeg = 0;
+  contact = false;
+  updateCamera(1);
+}
+
+// Обработчик выбора JSON-файла в панели #osmPanel
+const osmFileInput = document.getElementById('osmFile');
+const osmStatusEl = document.getElementById('osmStatus');
+if (osmFileInput) {
+  osmFileInput.addEventListener('change', e => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    osmStatusEl.textContent = 'загрузка...';
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        const res = loadOsm(data);
+        osmStatusEl.innerHTML = `дорог: ${res.roads}, домов: ${res.buildings}, светофоров: ${res.lights}<br>` +
+          `<button id="btnGoCity" style="margin-top:4px;cursor:pointer;">В город</button> ` +
+          `<button id="btnGoPark" style="margin-top:4px;cursor:pointer;">На автодром</button>`;
+        document.getElementById('btnGoCity').onclick = teleportToCity;
+        document.getElementById('btnGoPark').onclick = reset;
+        teleportToCity(); // сразу переносим машину на первую улицу города
+      } catch (err) {
+        osmStatusEl.textContent = 'ошибка JSON: ' + err.message;
+      }
+    };
+    reader.readAsText(file);
+  });
+}
+
+
+// ===== DrivingSim UI v3: movable HUD, dashboard and side mirrors =====
+(function initDrivingSimUIV3(){
+  const $ = id => document.getElementById(id);
+  const specs = [
+    ['hud','СОСТОЯНИЕ'],['sensPanel','НАСТРОЙКИ'],['wheelHud','РУЛЬ'],
+    ['rearMirror','ЦЕНТРАЛЬНОЕ ЗЕРКАЛО'],['osmPanel','КАРТА И ЛОКАЦИИ'],['help','УПРАВЛЕНИЕ']
+  ];
+  const dock = document.createElement('nav');
+  dock.id = 'dsDock';
+  dock.setAttribute('aria-label','Панель управления окнами интерфейса');
+  const dockHead=document.createElement('div'); dockHead.className='ds-dock-head';
+  const dockTitle=document.createElement('span'); dockTitle.className='ds-dock-title';
+  dockTitle.textContent='ОКНА И ЗЕРКАЛА';
+  const dockMin=document.createElement('button'); dockMin.type='button';
+  dockMin.textContent='−'; dockMin.title='Свернуть / развернуть панель';
+  dockHead.append(dockTitle,dockMin);
+  const dockContent=document.createElement('div'); dockContent.className='ds-dock-content';
+  dock.append(dockHead,dockContent);
+  document.body.appendChild(dock);
+
+  const storageKey = 'drivingsim.ui.v3.layout';
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(storageKey) || '{}') || {}; } catch (_) {}
+  const persist = () => {
+    const data = {};
+    document.querySelectorAll('.ds-window').forEach(n => {
+      data[n.id] = {left:n.style.left,top:n.style.top,width:n.style.width,
+        hidden:n.classList.contains('ds-hidden'),collapsed:n.classList.contains('ds-collapsed')};
+    });
+    data.__dock={left:dock.style.left,top:dock.style.top,collapsed:dock.classList.contains('ds-dock-collapsed')};
+    document.querySelectorAll('.ds-side-mirror').forEach(n=>{
+      data[n.id]={left:n.style.left,top:n.style.top,hidden:n.classList.contains('ds-hidden'),
+        collapsed:n.classList.contains('ds-collapsed')};
+    });
+    try { localStorage.setItem(storageKey, JSON.stringify(data)); } catch (_) {}
+  };
+
+  dockMin.addEventListener('click',e=>{
+    e.preventDefault();e.stopPropagation();
+    dock.classList.toggle('ds-dock-collapsed');
+    dockMin.textContent=dock.classList.contains('ds-dock-collapsed')?'+':'−';
+    persist();
+  });
+  let dockDragging=false,dockDx=0,dockDy=0;
+  dockHead.addEventListener('pointerdown',e=>{
+    if(e.target.closest('button'))return;
+    e.preventDefault();e.stopPropagation();dockDragging=true;
+    const r=dock.getBoundingClientRect();dockDx=e.clientX-r.left;dockDy=e.clientY-r.top;
+    dockHead.setPointerCapture(e.pointerId);
+    dock.style.left=r.left+'px';dock.style.top=r.top+'px';dock.style.transform='none';
+  });
+  dockHead.addEventListener('pointermove',e=>{
+    if(!dockDragging)return;
+    const r=dock.getBoundingClientRect();
+    dock.style.left=Math.max(0,Math.min(innerWidth-r.width,e.clientX-dockDx))+'px';
+    dock.style.top=Math.max(0,Math.min(innerHeight-28,e.clientY-dockDy))+'px';
+  });
+  const stopDockDrag=()=>{if(dockDragging){dockDragging=false;persist();}};
+  dockHead.addEventListener('pointerup',stopDockDrag);
+  dockHead.addEventListener('pointercancel',stopDockDrag);
+  if(saved.__dock){
+    if(saved.__dock.left)dock.style.left=saved.__dock.left;
+    if(saved.__dock.top)dock.style.top=saved.__dock.top;
+    if(saved.__dock.left||saved.__dock.top)dock.style.transform='none';
+    dock.classList.toggle('ds-dock-collapsed',!!saved.__dock.collapsed);
+    dockMin.textContent=saved.__dock.collapsed?'+':'−';
+  }
+
+  function makeWindow(node,label){
+    if(!node || node.dataset.dsReady) return null;
+    node.dataset.dsReady = '1';
+    node.classList.add('ds-window');
+    const content = document.createElement('div');
+    content.className = 'ds-content';
+    while(node.firstChild) content.appendChild(node.firstChild);
+    const bar = document.createElement('div');
+    bar.className = 'ds-titlebar';
+    const name = document.createElement('span');
+    name.className = 'ds-name'; name.textContent = label;
+    const min = document.createElement('button');
+    min.type='button'; min.textContent='−'; min.title='Свернуть / развернуть';
+    const close = document.createElement('button');
+    close.type='button'; close.textContent='×'; close.title='Скрыть элемент';
+    bar.append(name,min,close);
+    node.append(bar,content);
+    node.style.position='fixed';
+
+    const restore = document.createElement('button');
+    restore.type='button'; restore.textContent=label; restore.title='Показать / скрыть '+label;
+    restore.setAttribute('aria-pressed','false');
+    dockContent.appendChild(restore);
+
+    min.addEventListener('click',e=>{
+      e.stopPropagation();
+      node.classList.toggle('ds-collapsed');
+      min.textContent=node.classList.contains('ds-collapsed')?'+':'−';
+      persist();
+    });
+    const setHidden = hidden => {
+      node.classList.toggle('ds-hidden',hidden);
+      restore.setAttribute('aria-pressed',String(hidden));
+      if(!hidden) node.classList.remove('ds-collapsed');
+      persist();
+    };
+    close.addEventListener('click',e=>{e.stopPropagation();setHidden(true);});
+    restore.addEventListener('click',()=>setHidden(!node.classList.contains('ds-hidden')));
+
+    let dragging=false,dx=0,dy=0;
+    bar.addEventListener('pointerdown',e=>{
+      if(e.target.closest('button')) return;
+      e.preventDefault(); e.stopPropagation();
+      dragging=true;
+      const r=node.getBoundingClientRect(); dx=e.clientX-r.left; dy=e.clientY-r.top;
+      bar.setPointerCapture(e.pointerId);
+      node.style.left=r.left+'px'; node.style.top=r.top+'px';
+      node.style.right='auto'; node.style.bottom='auto';
+    });
+    bar.addEventListener('pointermove',e=>{
+      if(!dragging)return;
+      const r=node.getBoundingClientRect();
+      node.style.left=Math.max(0,Math.min(innerWidth-r.width,e.clientX-dx))+'px';
+      node.style.top=Math.max(0,Math.min(innerHeight-28,e.clientY-dy))+'px';
+    });
+    const stop=()=>{if(dragging){dragging=false;persist();}};
+    bar.addEventListener('pointerup',stop);
+    bar.addEventListener('pointercancel',stop);
+    const old=saved[node.id];
+    if(old){
+      if(old.left) node.style.left=old.left;
+      if(old.top) node.style.top=old.top;
+      if(old.width) node.style.width=old.width;
+      node.classList.toggle('ds-hidden',!!old.hidden);
+      node.classList.toggle('ds-collapsed',!!old.collapsed);
+      min.textContent=old.collapsed?'+':'−';
+      restore.setAttribute('aria-pressed',String(!!old.hidden));
+    }
+    return {node,content};
+  }
+
+  specs.forEach(([id,label])=>makeWindow($(id),label));
+
+  // Панель приборов: отображает только параметры, реально присутствующие в модели.
+  const dashboard=document.createElement('section');
+  dashboard.id='dsDashboard';
+  dashboard.innerHTML='<div class="ds-content"><canvas id="dsDashCanvas" width="580" height="300"></canvas>'+
+    '<div id="dsDashStatus"><span class="ds-indicator" id="dsGearIndicator">ПЕРЕДАЧА D</span>'+
+    '<span class="ds-indicator" id="dsLeftIndicator">◀ ПОВОРОТ</span>'+
+    '<span class="ds-indicator" id="dsRightIndicator">ПОВОРОТ ▶</span>'+
+    '<span class="ds-indicator" id="dsSteerIndicator">РУЛЬ 0°</span></div></div>';
+  document.body.appendChild(dashboard);
+  makeWindow(dashboard,'ПРИБОРНАЯ ПАНЕЛЬ');
+
+  const mirrorPair=document.createElement('div');
+  mirrorPair.id='dsMirrorPair';
+  document.body.appendChild(mirrorPair);
+  const sideCanvases=[];
+  function createSideMirror(id,label,index){
+    const box=document.createElement('section');
+    box.id=id; box.className='ds-side-mirror';
+    const head=document.createElement('div'); head.className='ds-titlebar';
+    const title=document.createElement('span'); title.className='ds-name'; title.textContent=label;
+    const min=document.createElement('button'); min.type='button'; min.textContent='−'; min.title='Свернуть зеркало';
+    const close=document.createElement('button'); close.type='button'; close.textContent='×'; close.title='Скрыть зеркало';
+    const canvas=document.createElement('canvas'); canvas.width=320; canvas.height=160;
+    const body=document.createElement('div'); body.className='ds-content'; body.appendChild(canvas);
+    head.append(title,min,close); box.append(head,body); mirrorPair.appendChild(box);
+    const restore=document.createElement('button'); restore.type='button'; restore.textContent=label;
+    restore.title='Показать / скрыть '+label; restore.setAttribute('aria-pressed','false');
+    dockContent.appendChild(restore);
+    const old=saved[id]||{};
+    if(old.left)box.style.left=old.left;
+    else box.style.left=Math.max(6,index===0?innerWidth/2-box.offsetWidth-8:innerWidth/2+8)+'px';
+    if(old.top)box.style.top=old.top;
+    else box.style.bottom=(innerWidth<=700?'150px':'180px');
+    const setHidden=hidden=>{
+      box.classList.toggle('ds-hidden',!!hidden);
+      restore.setAttribute('aria-pressed',String(!!hidden));
+      persist();
+    };
+    min.addEventListener('click',e=>{
+      e.preventDefault();e.stopPropagation();
+      box.classList.toggle('ds-collapsed');
+      min.textContent=box.classList.contains('ds-collapsed')?'+':'−';
+      persist();
+    });
+    close.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();setHidden(true);});
+    restore.addEventListener('click',e=>{
+      e.preventDefault();e.stopPropagation();setHidden(box.classList.contains('ds-hidden')?false:true);
+    });
+    let dragging=false,dx=0,dy=0;
+    head.addEventListener('pointerdown',e=>{
+      if(e.target.closest('button'))return;
+      e.preventDefault();e.stopPropagation();dragging=true;
+      const r=box.getBoundingClientRect();dx=e.clientX-r.left;dy=e.clientY-r.top;
+      head.setPointerCapture(e.pointerId);
+      box.style.left=r.left+'px';box.style.top=r.top+'px';box.style.bottom='auto';
+    });
+    head.addEventListener('pointermove',e=>{
+      if(!dragging)return;
+      box.style.left=Math.max(0,Math.min(innerWidth-box.offsetWidth,e.clientX-dx))+'px';
+      box.style.top=Math.max(0,Math.min(innerHeight-28,e.clientY-dy))+'px';
+    });
+    const stop=()=>{if(dragging){dragging=false;persist();}};
+    head.addEventListener('pointerup',stop);head.addEventListener('pointercancel',stop);
+    box.classList.toggle('ds-hidden',!!old.hidden);
+    box.classList.toggle('ds-collapsed',!!old.collapsed);
+    min.textContent=old.collapsed?'+':'−';
+    restore.setAttribute('aria-pressed',String(!!old.hidden));
+    sideCanvases.push(canvas);
+    return canvas;
+  }
+  createSideMirror('dsLeftMirror','ЛЕВОЕ ЗЕРКАЛО',0);
+  createSideMirror('dsRightMirror','ПРАВОЕ ЗЕРКАЛО',1);
+
+  // ===== Независимые настройки боковых зеркал =====
+  const MIRROR_STORAGE_KEY = 'drivingsim.mirror.optics.v1';
+
+  const MIRROR_DEFAULTS = [
+    {
+      focal: 25,
+      curvature: 0,
+      yaw: 0,
+      pitch: 0,
+      lateral: 0,
+      height: 0,
+      longitudinal: 0
+    },
+    {
+      focal: 25,
+      curvature: 0,
+      yaw: 0,
+      pitch: 0,
+      lateral: 0,
+      height: 0,
+      longitudinal: 0
+    }
+  ];
+
+  function loadMirrorSettings() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(MIRROR_STORAGE_KEY));
+      if (!Array.isArray(saved)) return MIRROR_DEFAULTS.map(v => ({...v}));
+
+      return MIRROR_DEFAULTS.map((defaults, index) => ({
+        ...defaults,
+        ...(saved[index] && typeof saved[index] === 'object'
+          ? Object.fromEntries(Object.entries(saved[index]).filter(([, v]) => typeof v === 'number' && Number.isFinite(v)))
+          : {}),
+      }));
+    } catch (error) {
+      console.warn('Не удалось загрузить настройки зеркал:', error);
+      return MIRROR_DEFAULTS.map(v => ({...v}));
+    }
+  }
+
+  const mirrorSettings = loadMirrorSettings();
+
+  function saveMirrorSettings() {
+    try {
+      localStorage.setItem(
+        MIRROR_STORAGE_KEY,
+        JSON.stringify(mirrorSettings)
+      );
+    } catch (error) {
+      console.warn('Не удалось сохранить настройки зеркал:', error);
+    }
+  }
+
+  const mirrorPanel = document.createElement('details');
+  mirrorPanel.id = 'dsMirrorSettings';
+  mirrorPanel.style.cssText = `
+    margin-top:10px;
+    padding:8px;
+    border:1px solid rgba(255,255,255,.18);
+    border-radius:8px;
+    background:rgba(0,0,0,.22);
+    color:#eaf2f6;
+    font-size:12px;
+    max-width:290px;
+  `;
+
+    mirrorPanel.innerHTML = `
+    <div id="dsMirrorSettingsContent" style="
+      display:grid;
+      grid-template-columns:1fr;
+      gap:10px;
+      margin-top:12px;
+    ">
+
+      <details open data-mirror-index="0"
+        style="border:1px solid rgba(255,255,255,.18);
+        border-radius:7px;padding:8px;">
+
+        <summary style="
+          cursor:pointer;
+          font-weight:700;
+          color:#8edcf2;
+          padding:4px;
+        ">ЛЕВОЕ ЗЕРКАЛО</summary>
+
+        <div class="ds-mirror-controls" data-index="0"
+          style="margin-top:8px;"></div>
+
+        <button type="button" data-reset-mirror="0"
+          style="margin-top:8px;">Сбросить левое</button>
+      </details>
+
+      <details open data-mirror-index="1"
+        style="border:1px solid rgba(255,255,255,.18);
+        border-radius:7px;padding:8px;">
+
+        <summary style="
+          cursor:pointer;
+          font-weight:700;
+          color:#8edcf2;
+          padding:4px;
+        ">ПРАВОЕ ЗЕРКАЛО</summary>
+
+        <div class="ds-mirror-controls" data-index="1"
+          style="margin-top:8px;"></div>
+
+        <button type="button" data-reset-mirror="1"
+          style="margin-top:8px;">Сбросить правое</button>
+      </details>
+
+      <button type="button" data-reset-mirror="all">
+        Сбросить оба зеркала
+      </button>
+
+    </div>
+  `;
+
+  $('sensPanel').appendChild(mirrorPanel);
+
+  const mirrorControlDefinitions = [
+    {
+      key: 'focal',
+      label: 'Фокусное расстояние',
+      min: 15,
+      max: 60,
+      step: 1,
+      unit: 'мм'
+    },
+    {
+      key: 'curvature',
+      label: 'Выпуклость',
+      min: 0,
+      max: 60,
+      step: 1,
+      unit: '%'
+    },
+    {
+      key: 'yaw',
+      label: 'Горизонтальный угол',
+      min: -25,
+      max: 25,
+      step: 1,
+      unit: '°'
+    },
+    {
+      key: 'pitch',
+      label: 'Вертикальный угол',
+      min: -15,
+      max: 25,
+      step: 1,
+      unit: '°'
+    },
+    {
+      key: 'lateral',
+      label: 'Смещение наружу',
+      min: 0,
+      max: 0.35,
+      step: 0.01,
+      unit: 'м'
+    },
+    {
+      key: 'height',
+      label: 'Смещение по высоте',
+      min: -0.25,
+      max: 0.25,
+      step: 0.01,
+      unit: 'м'
+    },
+    {
+      key: 'longitudinal',
+      label: 'Смещение вперёд/назад',
+      min: -0.4,
+      max: 0.4,
+      step: 0.01,
+      unit: 'м'
+    }
+  ];
+
+  function formatMirrorValue(value, step) {
+    return step < 1
+      ? Number(value).toFixed(2)
+      : String(Math.round(value));
+  }
+
+  function createMirrorControls(index) {
+    const container = mirrorPanel.querySelector(
+      '.ds-mirror-controls[data-index="' + index + '"]'
+    );
+
+    mirrorControlDefinitions.forEach(def => {
+      const row = document.createElement('label');
+      row.style.cssText = `
+        display:block;
+        margin:7px 0;
+        line-height:1.4;
+      `;
+
+      const title = document.createElement('div');
+      title.style.cssText = `
+        display:flex;
+        justify-content:space-between;
+        gap:8px;
+      `;
+
+      const name = document.createElement('span');
+      name.textContent = def.label;
+
+      const output = document.createElement('b');
+      output.textContent =
+        formatMirrorValue(mirrorSettings[index][def.key], def.step)
+        + ' ' + def.unit;
+
+      const input = document.createElement('input');
+      input.type = 'range';
+      input.min = def.min;
+      input.max = def.max;
+      input.step = def.step;
+      input.value = mirrorSettings[index][def.key];
+      input.dataset.mirrorIndex = index;
+      input.dataset.mirrorKey = def.key;
+      input.style.cssText = `
+        display:block;
+        width:100%;
+        margin:3px 0;
+        cursor:pointer;
+      `;
+
+      input.addEventListener('input', () => {
+        const value = Number(input.value);
+
+        mirrorSettings[index][def.key] = value;
+        output.textContent =
+          formatMirrorValue(value, def.step) + ' ' + def.unit;
+
+        saveMirrorSettings();
+      });
+
+      title.append(name, output);
+      row.append(title, input);
+      container.appendChild(row);
+    });
+  }
+
+  createMirrorControls(0);
+  createMirrorControls(1);
+
+  function resetMirrorSettings(index) {
+    if (index === 'all') {
+      mirrorSettings[0] = {...MIRROR_DEFAULTS[0]};
+      mirrorSettings[1] = {...MIRROR_DEFAULTS[1]};
+    } else {
+      mirrorSettings[index] = {...MIRROR_DEFAULTS[index]};
+    }
+
+    mirrorPanel.querySelectorAll('input[data-mirror-key]').forEach(input => {
+      const i = Number(input.dataset.mirrorIndex);
+      const key = input.dataset.mirrorKey;
+      const value = mirrorSettings[i][key];
+
+      if (index === 'all' || i === index) {
+        input.value = value;
+        const def = mirrorControlDefinitions.find(item => item.key === key);
+        const output = input.parentElement.querySelector('b');
+
+        output.textContent =
+          formatMirrorValue(value, def.step) + ' ' + def.unit;
+      }
+    });
+
+    saveMirrorSettings();
+  }
+
+  mirrorPanel.querySelectorAll('[data-reset-mirror]').forEach(button => {
+    button.addEventListener('click', () => {
+      const value = button.dataset.resetMirror;
+      resetMirrorSettings(value === 'all' ? 'all' : Number(value));
+    });
+  });
+  
+// Камеры зеркал ориентированы назад и наружу от кузова.
+  const SW=320, SH=160;
+  const sideTargets=[0,1].map(()=>new THREE.WebGLRenderTarget(SW,SH,{
+    minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,depthBuffer:true
+  }));
+  const sideCameras=[0,1].map(()=>new THREE.PerspectiveCamera(52,SW/SH,.15,220));
+  const sidePixels=[0,1].map(()=>new Uint8Array(SW*SH*4));
+  const sideImages=sideCanvases.map(c=>c.getContext('2d').createImageData(SW,SH));  function renderSideMirrors(){
+    const chassis = car.userData.chassis;
+
+    car.updateMatrixWorld(true);
+
+    const previousTarget = renderer.getRenderTarget();
+    const previousAutoClear = renderer.autoClear;
+
+    const glass = typeof mirrorGlass !== 'undefined'
+      ? mirrorGlass
+      : null;
+
+    if (glass) glass.visible = false;
+// Временно скрываем физические зеркала автомобиля
+// только на время рендеринга боковых зеркал.
+const hiddenMirrorParts = [];
+
+chassis.traverse(obj => {
+  if (obj.userData.excludeFromSideMirrors) {
+    hiddenMirrorParts.push([obj, obj.visible]);
+    obj.visible = false;
+  }
+});
+
+    try {
+      for (let i = 0; i < 2; i++) {
+        const cfg = mirrorSettings[i];
+
+       // Левое зеркало (индекс 0) находится по +X, правое — по −X: лево — это ←, если смотреть сзади по ходу движения.
+const sign = i === 0 ? 1 : -1;
+
+// Физическое положение зеркала относительно автомобиля.
+const eyeLocal = new THREE.Vector3(
+  sign * (0.99 + cfg.lateral),
+  1.18 + cfg.height,
+  2.18 + cfg.longitudinal
+);
+
+// Базовое направление камеры относительно автомобиля.
+const directionLocal = new THREE.Vector3(
+  sign * 0.65,
+  -0.20,
+  -1
+).normalize();
+
+// Горизонтальная и вертикальная регулировка.
+directionLocal.applyAxisAngle(
+  new THREE.Vector3(0, 1, 0),
+  THREE.MathUtils.degToRad(cfg.yaw)
+);
+
+directionLocal.applyAxisAngle(
+  new THREE.Vector3(1, 0, 0),
+  THREE.MathUtils.degToRad(cfg.pitch)
+);
+
+// Переводим координаты из системы автомобиля в мировую.
+const eye = chassis.localToWorld(eyeLocal.clone());
+const aimLocal = eyeLocal.clone().add(
+  directionLocal.multiplyScalar(18)
+);
+const aim = chassis.localToWorld(aimLocal);
+
+const up = chassis.localToWorld(new THREE.Vector3(0, 2, 0))
+  .sub(chassis.localToWorld(new THREE.Vector3(0, 0, 0)))
+  .normalize();
+
+const cam = sideCameras[i];
+
+const sensorHeight = 24;
+
+cam.fov = THREE.MathUtils.radToDeg(
+  2 * Math.atan(sensorHeight / (2 * cfg.focal))
+);
+
+cam.aspect = SW / SH;
+cam.position.copy(eye);
+cam.up.copy(up);
+cam.lookAt(aim);
+cam.updateProjectionMatrix();
+cam.updateMatrixWorld(true);
+
+        renderer.setRenderTarget(sideTargets[i]);
+        renderer.clear();
+        renderer.render(scene, cam);
+
+        renderer.readRenderTargetPixels(
+          sideTargets[i],
+          0,
+          0,
+          SW,
+          SH,
+          sidePixels[i]
+        );
+
+        const src = sidePixels[i];
+        const dst = sideImages[i].data;
+
+        // Оптическая выпуклость.
+        // Чем выше curvature, тем сильнее радиальное искажение.
+        const distortion = (cfg.curvature / 100) * 0.35;
+
+        for (let y = 0; y < SH; y++) {
+          for (let x = 0; x < SW; x++) {
+            const nx = (x / (SW - 1)) * 2 - 1;
+            const ny = (y / (SH - 1)) * 2 - 1;
+
+            const radiusSquared = nx * nx + ny * ny;
+            const factor = 1 + distortion * radiusSquared;
+
+            let sourceX = Math.round(
+              (nx * factor + 1) * 0.5 * (SW - 1)
+            );
+
+            let sourceY = Math.round(
+              (ny * factor + 1) * 0.5 * (SH - 1)
+            );
+
+            sourceX = Math.max(0, Math.min(SW - 1, sourceX));
+            sourceY = Math.max(0, Math.min(SH - 1, sourceY));
+
+            // WebGL отдаёт строки снизу вверх; горизонталь инвертируем,
+            // чтобы сторона машины совпадала с экраном: лево — ←, право — →.
+            const sourceIndex = (
+              (SH - 1 - sourceY) * SW +
+              (SW - 1 - sourceX)
+            ) * 4;
+
+            const targetIndex = (y * SW + x) * 4;
+
+            dst[targetIndex] = src[sourceIndex];
+            dst[targetIndex + 1] = src[sourceIndex + 1];
+            dst[targetIndex + 2] = src[sourceIndex + 2];
+            dst[targetIndex + 3] = 255;
+          }
+        }
+
+        sideCanvases[i]
+          .getContext('2d')
+          .putImageData(sideImages[i], 0, 0);
+      }
+    } finally {
+      // Возвращаем физические зеркала в исходное состояние.
+      for (const [obj, wasVisible] of hiddenMirrorParts) {
+        obj.visible = wasVisible;
+      }
+      if (glass) glass.visible = true;
+      renderer.setRenderTarget(previousTarget);
+      renderer.autoClear = previousAutoClear;
+    }
+  }
+
+  // Приборная панель: спидометр в км/ч, передача, указатели поворота и угол руля.
+  const dashCanvas=$('dsDashCanvas'), dashCtx=dashCanvas.getContext('2d');
+  let dashKey = '';
+  function drawDashboard(){
+    const dkey = [Math.round(Math.abs(state.v) * 3.6), gearLabel(), signal, Math.round(state.steer * 180 / Math.PI), Math.round(swDeg)].join('|');
+    if (dkey === dashKey) return;
+    dashKey = dkey;
+    const ctx=dashCtx,w=dashCanvas.width,h=dashCanvas.height;
+    ctx.clearRect(0,0,w,h);
+    const speed=Math.abs(state.v)*3.6, max=180;
+    const cx=165,cy=158,r=112;
+    ctx.fillStyle='#0b151c';ctx.fillRect(0,0,w,h);
+    ctx.beginPath();ctx.arc(cx,cy,r,Math.PI*.78,Math.PI*2.22);
+    ctx.lineWidth=17;ctx.strokeStyle='#354650';ctx.stroke();
+    ctx.beginPath();ctx.arc(cx,cy,r,Math.PI*.78,Math.PI*.78+(Math.PI*1.44)*Math.min(speed/max,1));
+    ctx.lineWidth=17;ctx.strokeStyle='#36b7d8';ctx.stroke();
+    for(let n=0;n<=180;n+=20){
+      const a=Math.PI*.78+(Math.PI*1.44)*(n/max);
+      const x1=cx+Math.cos(a)*(r-14),y1=cy+Math.sin(a)*(r-14);
+      const x2=cx+Math.cos(a)*(r+1),y2=cy+Math.sin(a)*(r+1);
+      ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);
+      ctx.strokeStyle='#d8e2e8';ctx.lineWidth=3;ctx.stroke();
+      ctx.fillStyle='#d8e2e8';ctx.font='15px system-ui';ctx.textAlign='center';
+      ctx.fillText(String(n),cx+Math.cos(a)*(r-31),cy+Math.sin(a)*(r-31)+5);
+    }
+    const angle=Math.PI*.78+(Math.PI*1.44)*Math.min(speed/max,1);
+    ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+Math.cos(angle)*(r-25),cy+Math.sin(angle)*(r-25));
+    ctx.strokeStyle='#ff5b52';ctx.lineWidth=5;ctx.lineCap='round';ctx.stroke();
+    ctx.beginPath();ctx.arc(cx,cy,8,0,Math.PI*2);ctx.fillStyle='#f1f5f7';ctx.fill();
+    ctx.fillStyle='#fff';ctx.textAlign='center';ctx.font='bold 40px system-ui';
+    ctx.fillText(String(Math.round(speed)),cx,cy+55);
+    ctx.font='14px system-ui';ctx.fillStyle='#a9bac4';ctx.fillText('км/ч',cx,cy+75);
+    ctx.textAlign='left';ctx.font='bold 18px system-ui';ctx.fillStyle='#eaf2f6';
+    ctx.fillText('DRIVE SIM',365,65);
+    ctx.font='13px system-ui';ctx.fillStyle='#9fb0ba';
+    ctx.fillText('СКОРОСТЬ',365,91);ctx.fillText('СОСТОЯНИЕ',365,153);
+    ctx.font='bold 27px system-ui';ctx.fillStyle='#fff';ctx.fillText(gearLabel(),365,126);
+    ctx.font='14px system-ui';ctx.fillStyle='#fff';
+    ctx.fillText(signal==='L'?'ЛЕВЫЙ':signal==='R'?'ПРАВЫЙ':'ПОВОРОТНИКИ ВЫКЛ.',365,180);
+    ctx.fillText('КОЛЁСА: '+Math.round(ackermannAngle(1, state.steer)*180/Math.PI)+'°',365,210);
+    $('dsGearIndicator').textContent='ПЕРЕДАЧА '+gearLabel();
+    $('dsLeftIndicator').classList.toggle('active',signal==='L');
+    $('dsRightIndicator').classList.toggle('active',signal==='R');
+    $('dsSteerIndicator').textContent='РУЛЬ '+Math.round(swDeg)+'°';
+  }
+  const oldUpdateHud=updateHud;
+  updateHud=function(){oldUpdateHud();drawDashboard();};
+
+  // Боковые зеркала обновляются после центрального зеркала.
+  window.__dsRenderSideMirrors=renderSideMirrors;
+  addEventListener('resize',()=>{
+    document.querySelectorAll('.ds-window:not(.ds-hidden),.ds-side-mirror:not(.ds-hidden)').forEach(n=>{
+      const r=n.getBoundingClientRect();
+      if(r.left+r.width>innerWidth)n.style.left=Math.max(0,innerWidth-r.width)+'px';
+      if(r.top+28>innerHeight)n.style.top=Math.max(0,innerHeight-28)+'px';
+    });
+    const dr=dock.getBoundingClientRect();
+    if(dr.right>innerWidth)dock.style.left=Math.max(0,innerWidth-dr.width)+'px';
+    if(dr.bottom>innerHeight)dock.style.top=Math.max(0,innerHeight-dr.height)+'px';
+  });
+})();
+
+// Старт основного цикла
+updateCamera(1);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
