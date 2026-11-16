@@ -249,7 +249,7 @@ let steerSens = 1;   // чувствительность руля (ЛКМ), по
 let camSens = 1;     // чувствительность камеры (ПКМ), ползунок
 // руль: угол рулевого колеса в градусах; ~2,7 оборота на упор (как у легковых), 1 оборот ≈ 250 px
 let swDeg = 0;
-const SW = { degPerPx: 1.44, maxDeg: 486, ratio: 486 / (CAR.maxSteer * 180 / Math.PI) };   // ratio: градусы руля на градус колёс
+const SW = { degPerPx: 1.6, maxDeg: 540, ratio: 540 / (CAR.maxSteer * 180 / Math.PI) };   // ratio: градусы руля на градус колёс; 540° от нейтрали — как у реального авто (Kia Ceed JD ~1,5 оборота)
 let collisions = 0, elapsed = 0, holdT = 0, finished = false, contact = false, score = 0;
 let finishedBay = null;
 
@@ -963,6 +963,7 @@ addEventListener('keydown', e => {
     act.blur();                                                                        // ползунки и файлы не должны забирать клавиши
   }
   keys[e.code] = true;
+  if (e.repeat) return;   // автоповтор клавиши не должен переключать зажигание/ручник/фары и т.д.
   if (e.code === 'KeyI') {
     engineRunning = !engineRunning;
     if (!engineRunning) state.v = 0;
@@ -1397,7 +1398,7 @@ function syncCar(now) {
   car.userData.steerWheel.rotation.z = swDeg * Math.PI / 180;
   if (car.userData.updateDriver) car.userData.updateDriver();
   for (const w of car.userData.wheels) w.rotation.y = wheelSpin;
-  const on = Math.floor(now / 400) % 2 === 0;   // мигание ~1,25 Гц
+  const on = Math.floor(now / 350) % 2 === 0;   // мигание ~1,4 Гц (цикл 700 мс), как у реального авто
   car.userData.ampL.emissiveIntensity = signal === 'L' && on ? 1.5 : 0;
   car.userData.ampR.emissiveIntensity = signal === 'R' && on ? 1.5 : 0;
   const isBraking = !!(keys.KeyS || keys.ArrowDown) || (gear === 'R' && state.v < -0.1);
