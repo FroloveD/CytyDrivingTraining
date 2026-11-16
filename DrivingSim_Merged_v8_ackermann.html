@@ -127,6 +127,8 @@
   <input id="mirrorSize" type="range" min="200" max="900" step="10" value="480" style="width: 200px">
   <br>Боковые зеркала (ширина): <b id="sideMirrorSizeVal">авто</b> px<br>
   <input id="sideMirrorSize" type="range" min="110" max="400" step="10" value="250" style="width: 200px">
+  <br>Руль (размер): <b id="wheelSizeVal">165</b> px<br>
+  <input id="wheelSize" type="range" min="90" max="320" step="5" value="165" style="width: 200px">
 </div>
 
 <div id="wheelHud" class="panel" style="left: 12px; bottom: 12px; padding: 6px;">
@@ -1204,6 +1206,25 @@ sideMirrorSizeInput.addEventListener('input', () => {
   applySideMirrorSize(w);
   sideMirrorSizeVal.textContent = w;
   settings.sideMirrorSize = w; saveSettings();
+});
+
+// размер HUD-руля: слайдер меняет размер SVG, окно подстраивается само
+const wheelSizeInput = document.getElementById('wheelSize');
+const wheelSizeVal = document.getElementById('wheelSizeVal');
+const applyWheelSize = w => {
+  wheelSvg.style.width = w + 'px';
+  wheelSvg.style.height = w + 'px';
+};
+if (typeof settings.wheelSize === 'number') {
+  wheelSizeInput.value = settings.wheelSize;
+  wheelSizeVal.textContent = settings.wheelSize;
+  applyWheelSize(settings.wheelSize);
+}
+wheelSizeInput.addEventListener('input', () => {
+  const w = +wheelSizeInput.value;
+  applyWheelSize(w);
+  wheelSizeVal.textContent = w;
+  settings.wheelSize = w; saveSettings();
 });
 
 const bindSens = (inputId, valId, set) => {
