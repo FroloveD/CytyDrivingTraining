@@ -121,6 +121,8 @@
   <input id="camRange" type="range" min="0.3" max="3" step="0.1" value="1" style="width: 200px">
   <br>Зеркало (ширина): <b id="mirrorSizeVal">480</b> px<br>
   <input id="mirrorSize" type="range" min="200" max="900" step="10" value="480" style="width: 200px">
+  <br>Боковые зеркала (ширина): <b id="sideMirrorSizeVal">авто</b> px<br>
+  <input id="sideMirrorSize" type="range" min="110" max="400" step="10" value="250" style="width: 200px">
 </div>
 
 <div id="wheelHud" class="panel" style="left: 12px; bottom: 12px; padding: 6px;">
@@ -1134,6 +1136,27 @@ mirrorSizeInput.addEventListener('input', () => {
   rearMirror.style.top = clamp(parseFloat(rearMirror.style.top) || 0, 0, innerHeight - rearMirror.offsetHeight) + 'px';
 });
 
+// размер боковых зеркал: слайдер; без сохранённого значения действует адаптивный CSS (на телефоне меньше)
+const sideMirrorSizeInput = document.getElementById('sideMirrorSize');
+const sideMirrorSizeVal = document.getElementById('sideMirrorSizeVal');
+const applySideMirrorSize = w => {
+  document.querySelectorAll('.ds-side-mirror').forEach(b => {
+    b.style.width = w + 'px';
+    b.style.minWidth = w + 'px';   // иначе CSS min-width не даёт сделать меньше
+  });
+};
+if (typeof settings.sideMirrorSize === 'number') {
+  sideMirrorSizeInput.value = settings.sideMirrorSize;
+  sideMirrorSizeVal.textContent = settings.sideMirrorSize;
+  applySideMirrorSize(settings.sideMirrorSize);
+}
+sideMirrorSizeInput.addEventListener('input', () => {
+  const w = +sideMirrorSizeInput.value;
+  applySideMirrorSize(w);
+  sideMirrorSizeVal.textContent = w;
+  settings.sideMirrorSize = w; saveSettings();
+});
+
 const bindSens = (inputId, valId, set) => {
   const input = document.getElementById(inputId), out = document.getElementById(valId);
   input.addEventListener('input', () => { set(+input.value); out.textContent = (+input.value).toFixed(1); });
@@ -1916,6 +1939,10 @@ if (osmFileInput) {
     const canvas=document.createElement('canvas'); canvas.width=320; canvas.height=160;
     const body=document.createElement('div'); body.className='ds-content'; body.appendChild(canvas);
     head.append(title,min,close); box.append(head,body); mirrorPair.appendChild(box);
+    if (typeof settings.sideMirrorSize === 'number') {   // сохранённый размер слайдера — до расчёта позиции по offsetWidth
+      box.style.width = settings.sideMirrorSize + 'px';
+      box.style.minWidth = settings.sideMirrorSize + 'px';
+    }
     const restore=document.createElement('button'); restore.type='button'; restore.textContent=label;
     restore.title='Показать / скрыть '+label; restore.setAttribute('aria-pressed','false');
     dockContent.appendChild(restore);
