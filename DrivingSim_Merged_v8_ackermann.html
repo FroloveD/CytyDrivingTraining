@@ -93,9 +93,9 @@
   .ds-gear{width:40px;height:40px;font-size:15px}
   .ds-gear.ds-gear-active{background:rgba(46,125,80,.92);border-color:#7bd88f}
   .ds-act.ds-on{background:rgba(46,125,80,.92);border-color:#7bd88f}
-  .ds-drag-grip{position:absolute;top:-18px;left:0;width:24px;height:17px;
-    font:bold 13px/17px system-ui;color:rgba(255,255,255,.8);background:rgba(8,17,24,.55);
-    border-radius:4px;text-align:center;pointer-events:auto;cursor:move;
+  .ds-drag-grip{position:absolute;top:-24px;left:0;width:36px;height:22px;
+    font:bold 15px/22px system-ui;color:rgba(255,255,255,.85);background:rgba(8,17,24,.65);
+    border:1px solid rgba(255,255,255,.25);border-radius:5px;text-align:center;pointer-events:auto;cursor:move;
     user-select:none;-webkit-user-select:none;touch-action:none}
 </style>
 
@@ -1293,10 +1293,13 @@ function update(dt) {
   // руль: плавно к цели, возврат к центру
   const turn = ((keys.KeyA || keys.ArrowLeft) ? 1 : 0) - ((keys.KeyD || keys.ArrowRight) ? 1 : 0);
   // отпустили ЛКМ на ходу — руль возвращается в центр; на стоянке остаётся в том положении, в котором был
-  if (dragBtn !== 0 && Math.abs(state.v) > 0.05) swDeg += clamp(-swDeg, -720 * dt, 720 * dt);
+  // авторазцентрирование на ходу не действует, пока водитель «держит руль»: ЛКМ/палец на сцене, экранный руль или его grip
+  if (dragBtn !== 0 && !wheelDrag && !gripDrag && Math.abs(state.v) > 0.05) swDeg += clamp(-swDeg, -720 * dt, 720 * dt);
   const mouseTarget = swDeg * Math.PI / 180 / SW.ratio;
   const target = turn !== 0 ? turn * CAR.maxSteer : mouseTarget;
-  const rate = turn !== 0 ? 2.5 : 6.0;
+  // на десктопе клавиатурное руление как у реального авто (~500°/с руля, до упора ~1 с); на тач-устройствах быстрее
+  const kbRate = document.body.classList.contains('ds-touch') ? 2.5 : 0.5;
+  const rate = turn !== 0 ? kbRate : 6.0;
   state.steer += clamp(target - state.steer, -rate * dt, rate * dt);
   // клавиатурное руление тоже фиксируется на HUD: экранный руль и индикаторы
   // показывают фактический угол колёс, как при рулении мышью
@@ -2501,14 +2504,15 @@ cam.updateMatrixWorld(true);
       drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
       el.style.right = 'auto'; el.style.bottom = 'auto';
       el.style.left = r.left + 'px'; el.style.top = r.top + 'px';
+      el.style.zIndex = 10006;   // группа поверх остальных, пока её тащат
       grip.setPointerCapture(e.pointerId);
     });
     grip.addEventListener('pointermove', e => {
       if (!drag) return;
       el.style.left = Math.max(0, Math.min(innerWidth - el.offsetWidth, e.clientX - drag.dx)) + 'px';
-      el.style.top = Math.max(0, Math.min(innerHeight - el.offsetHeight, e.clientY - drag.dy)) + 'px';
+      el.style.top = Math.max(26, Math.min(innerHeight - el.offsetHeight, e.clientY - drag.dy)) + 'px';   // grip (top:-24px) не уходит за верхний край
     });
-    const stop = () => { drag = null; };
+    const stop = () => { drag = null; el.style.zIndex = ''; };
     grip.addEventListener('pointerup', stop);
     grip.addEventListener('pointercancel', stop);
   };
