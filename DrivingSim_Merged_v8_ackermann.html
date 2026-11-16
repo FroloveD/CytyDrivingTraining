@@ -123,7 +123,14 @@
   <button type="button" data-exam="1" style="display:block;width:100%;margin:3px 0;padding:5px;cursor:pointer">▶ Маршрут №2 — короткий</button>
   <button type="button" id="examStop" style="display:block;width:100%;margin:3px 0;padding:5px;cursor:pointer">■ Завершить маршрут</button>
   <button type="button" id="examLoad" style="display:block;width:100%;margin:3px 0;padding:5px;cursor:pointer">📂 Загрузить маршруты (JSON)</button>
+  <button type="button" id="examReset" style="display:block;width:100%;margin:3px 0;padding:5px;cursor:pointer">↺ Встроенные маршруты</button>
   <input type="file" id="examFile" accept=".json,application/json" style="display:none">
+</div>
+
+<div id="examResult" style="display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:70;background:rgba(18,22,28,0.95);border:1px solid #3a4656;border-radius:10px;padding:18px 26px;min-width:260px;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,0.5)">
+  <div id="examResultTitle" style="font-weight:700;font-size:18px;margin-bottom:8px"></div>
+  <div id="examResultBody" style="margin-bottom:12px;line-height:1.5"></div>
+  <button type="button" id="examResultClose" style="padding:5px 18px;cursor:pointer">OK</button>
 </div>
 
 <div id="sensPanel" class="panel" style="right: 12px; top: 12px;">
@@ -138,6 +145,7 @@
   <br>Руль (размер): <b id="wheelSizeVal">165</b> px<br>
   <input id="wheelSize" type="range" min="90" max="320" step="5" value="165" style="width: 200px">
   <br><button type="button" id="mapLoad" style="margin-top:6px;padding:4px 8px;cursor:pointer">📂 Загрузить карту (JSON)</button>
+<button type="button" id="mapReset" style="margin-top:4px;padding:4px 8px;cursor:pointer">↺ Встроенная карта</button>
   <input type="file" id="mapFile" accept=".json,application/json" style="display:none">
 </div>
 
@@ -997,6 +1005,9 @@ function rebuildCones() {
   }
 }
 rebuildCones();
+const BUILTIN_CONES = JSON.parse(JSON.stringify(cones));
+const BUILTIN_BAYS = bays.filter(b => b.occupied).map(b => b.id);
+const LS_MAP = 'drivingsim.map.v1';
 
 // ================= экзаменационные маршруты =================
 // Маршрут — упорядоченные точки на автодроме: точка засчитывается, когда машина в её радиусе;
@@ -1028,7 +1039,33 @@ const EXAM_ROUTES = [
     ]
   }
 ];
-const exam = { active: false, done: false, ri: -1, idx: 0, holdT: 0, score: 0, dist: 0 };
+const BUILTIN_ROUTES = JSON.parse(JSON.stringify(EXAM_ROUTES));
+const LS_ROUTES = 'drivingsim.exam.routes.v1';
+
+function parseRoutesData(data) {
+  if (!Array.isArray(data) || !data.length) throw new Error('нужен непустой массив маршрутов');
+  return data.map((r, i) => {
+    if (!r || !Array.isArray(r.pts) || !r.pts.length) throw new Error('маршрут ' + (i + 1) + ': нет точек');
+    return {
+      name: String(r.name || ('Маршрут №' + (i + 1))),
+      pts: r.pts.map((p, j) => {
+        const x = +p.x, z = +p.z;
+        if (!isFinite(x) || !isFinite(z)) throw new Error('маршрут ' + (i + 1) + ', точка ' + (j + 1) + ': координаты не числа');
+        return { x, z, r: Math.min(30, Math.max(1, +p.r || 5)), name: String(p.name || ('Точка ' + (j + 1))), stop: !!p.stop };
+      })
+    };
+  });
+}
+
+function applyRoutes(list) {
+  EXAM_ROUTES.length = 0;
+  for (const r of list) EXAM_ROUTES.push(r);
+  rebuildExamMarkers();
+  rebuildExamPanel();
+  stopExam();
+}
+
+const exam = { active: false, done: false, ri: -1, idx: 0, holdT: 0, score: 0, dist: 0, flash: 0, time: 0, touches: 0 };
 
 const examGroup = new THREE.Group();
 scene.add(examGroup);
@@ -1072,13 +1109,26 @@ function examRefreshMarkers() {
   }
 }
 
+function hideExamResult() {
+  document.getElementById('examResult').style.display = 'none';
+}
+function showExamResult() {
+  const t = Math.max(0, Math.round(exam.time || 0));
+  const mm = String(Math.floor(t / 60)).padStart(2, '0');
+  const ss = String(t % 60).padStart(2, '0');
+  document.getElementById('examResultTitle').textContent = 'Маршрут пройден!';
+  document.getElementById('examResultBody').innerHTML = 'Балл: <b>' + exam.score + '</b><br>Время: ' + mm + ':' + ss + '<br>Касаний: ' + exam.touches;
+  document.getElementById('examResult').style.display = 'block';
+}
 function startExam(ri) {
   reset();
-  exam.active = true; exam.done = false; exam.ri = ri; exam.idx = 0; exam.holdT = 0; exam.score = 0; exam.dist = 0;
+  exam.active = true; exam.done = false; exam.ri = ri; exam.idx = 0; exam.holdT = 0; exam.score = 0; exam.dist = 0; exam.flash = 0;
+  hideExamResult();
   examRefreshMarkers();
 }
 function stopExam() {
-  exam.active = false; exam.done = false; exam.ri = -1; exam.idx = 0; exam.holdT = 0; exam.dist = 0;
+  exam.active = false; exam.done = false; exam.ri = -1; exam.idx = 0; exam.holdT = 0; exam.dist = 0; exam.flash = 0;
+  hideExamResult();
   examRefreshMarkers();
 }
 function examAdvance() {
@@ -1087,10 +1137,15 @@ function examAdvance() {
   if (exam.idx >= EXAM_ROUTES[exam.ri].pts.length) {
     exam.done = true;
     exam.score = Math.max(0, 100 - 15 * collisions);
+    exam.time = elapsed;
+    exam.touches = collisions;
+    showExamResult();
   }
+  exam.flash = 1.2;
   examRefreshMarkers();
 }
 function examUpdate(dt) {
+  exam.flash = Math.max(0, exam.flash - dt);
   if (!exam.active || exam.done) { exam.dist = 0; return; }
   const pt = EXAM_ROUTES[exam.ri].pts[exam.idx];
   const dist = Math.hypot(state.x - pt.x, state.z - pt.z);
@@ -1128,23 +1183,10 @@ document.getElementById('examFile').addEventListener('change', e => {
     try {
       const data = JSON.parse(reader.result);
       if (!Array.isArray(data) || !data.length) throw new Error('нужен непустой массив маршрутов');
-      const clean = data.map((r, i) => {
-        if (!r || !Array.isArray(r.pts) || !r.pts.length) throw new Error('маршрут ' + (i + 1) + ': нет точек');
-        return {
-          name: String(r.name || ('Маршрут №' + (i + 1))),
-          pts: r.pts.map((p, j) => {
-            const x = +p.x, z = +p.z;
-            if (!isFinite(x) || !isFinite(z)) throw new Error('маршрут ' + (i + 1) + ', точка ' + (j + 1) + ': координаты не числа');
-            return { x, z, r: Math.min(30, Math.max(1, +p.r || 5)), name: String(p.name || ('Точка ' + (j + 1))), stop: !!p.stop };
-          })
-        };
-      });
-      EXAM_ROUTES.length = 0;
-      for (const r of clean) EXAM_ROUTES.push(r);
-      rebuildExamMarkers();
-      rebuildExamPanel();
-      stopExam();
-      alert('Загружено маршрутов: ' + clean.length);
+      const clean = parseRoutesData(data);
+      try { localStorage.setItem(LS_ROUTES, JSON.stringify(clean)); } catch (err) {}
+      applyRoutes(clean);
+      alert('Загружено маршрутов: ' + clean.length + ' (сохранены для следующих запусков)');
     } catch (err) {
       alert('Ошибка загрузки маршрутов: ' + err.message);
     }
@@ -1152,6 +1194,24 @@ document.getElementById('examFile').addEventListener('change', e => {
   reader.readAsText(f);
   e.target.value = '';
 });
+document.getElementById('examReset').addEventListener('click', () => {
+  try { localStorage.removeItem(LS_ROUTES); } catch (err) {}
+  applyRoutes(JSON.parse(JSON.stringify(BUILTIN_ROUTES)));
+  alert('Возвращены встроенные маршруты');
+});
+(function restoreRoutes() {
+  try {
+    const raw = localStorage.getItem(LS_ROUTES);
+    if (!raw) return;
+    const clean = parseRoutesData(JSON.parse(raw));
+    EXAM_ROUTES.length = 0;
+    for (const r of clean) EXAM_ROUTES.push(r);
+    rebuildExamMarkers();
+    rebuildExamPanel();
+  } catch (err) {}
+})();
+
+document.getElementById('examResultClose').addEventListener('click', hideExamResult);
 
 // наш автомобиль
 const car = makeCar(0x2d6cdf, DIM.ceed, { sign: true, driver: true });
@@ -1647,7 +1707,7 @@ function refreshStatus(bay) {
   else if (exam.active) {
     const pt = EXAM_ROUTES[exam.ri].pts[exam.idx];
     const hold = pt.stop && exam.dist < pt.r;
-    text = `Маршрут ${exam.ri + 1}: точка ${exam.idx + 1}/${EXAM_ROUTES[exam.ri].pts.length} — ${pt.name} (${Math.round(exam.dist)} м)` + (hold ? ' — стойте!' : '');
+    text = (exam.flash > 0 ? '✓ ' : '') + `Маршрут ${exam.ri + 1}: точка ${exam.idx + 1}/${EXAM_ROUTES[exam.ri].pts.length} — ${pt.name} (${Math.round(exam.dist)} м)` + (hold ? ' — стойте!' : '');
   }
   else if (finished && bay === finishedBay && Math.abs(state.v) < 0.05) text = `Парковка в боксе №${finishedBay.id} выполнена! Балл: ${score} — можно выезжать`;
   else if (contact) text = 'Касание! Отъездьте назад';
@@ -1702,7 +1762,14 @@ document.getElementById('mapFile').addEventListener('change', e => {
         applyBays(ids);
       }
       reset();
-      alert('Карта загружена: конусов ' + cones.filter(c => !c.osm).length + ', боксов занято ' + bays.filter(b => b.occupied).length + (mapStart ? ', старт перемещён' : ''));
+      try {
+        localStorage.setItem(LS_MAP, JSON.stringify({
+          start: mapStart,
+          cones: cones.filter(c => !c.osm),
+          bays: bays.filter(b => b.occupied).map(b => b.id)
+        }));
+      } catch (err) {}
+      alert('Карта загружена: конусов ' + cones.filter(c => !c.osm).length + ', боксов занято ' + bays.filter(b => b.occupied).length + (mapStart ? ', старт перемещён' : '') + ' (сохранена для следующих запусков)');
     } catch (err) {
       alert('Ошибка загрузки карты: ' + err.message);
     }
@@ -1710,6 +1777,38 @@ document.getElementById('mapFile').addEventListener('change', e => {
   reader.readAsText(f);
   e.target.value = '';
 });
+document.getElementById('mapReset').addEventListener('click', () => {
+  try { localStorage.removeItem(LS_MAP); } catch (err) {}
+  mapStart = null;
+  for (let i = cones.length - 1; i >= 0; i--) if (!cones[i].osm) cones.splice(i, 1);
+  for (const c of BUILTIN_CONES) cones.push({ x: c.x, z: c.z });
+  rebuildCones();
+  applyBays(BUILTIN_BAYS);
+  reset();
+  alert('Возвращена встроенная карта');
+});
+(function restoreMap() {
+  try {
+    const raw = localStorage.getItem(LS_MAP);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return;
+    if (data.start != null) {
+      const x = +data.start.x, z = +data.start.z, h = +data.start.h || 0;
+      if (isFinite(x) && isFinite(z)) mapStart = { x: Math.max(-200, Math.min(200, x)), z: Math.max(-200, Math.min(200, z)), h: isFinite(h) ? h : 0 };
+    }
+    if (Array.isArray(data.cones)) {
+      const fresh = data.cones.filter(c => c && isFinite(+c.x) && isFinite(+c.z)).map(c => ({ x: +c.x, z: +c.z }));
+      for (let i = cones.length - 1; i >= 0; i--) if (!cones[i].osm) cones.splice(i, 1);
+      for (const c of fresh) cones.push(c);
+      rebuildCones();
+    }
+    if (Array.isArray(data.bays)) {
+      applyBays(data.bays.filter(v => Number.isInteger(v) && v >= 1 && v <= 2 * COLS + PAR_COUNT));
+    }
+    reset();
+  } catch (err) {}
+})();
 
 // ================= камера =================
 const camTarget = new THREE.Vector3();
