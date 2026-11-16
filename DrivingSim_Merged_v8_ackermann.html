@@ -5,14 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>CytyDrivingTraining — парковка задним ходом</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #9fb7c9; font-family: system-ui, sans-serif; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #9fb7c9; font-family: system-ui, sans-serif;
+    user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
   canvas { display: block; filter: contrast(1.06) saturate(1.08); }
   #vignette { z-index: 5; position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(0,0,0,0.35) 100%); }
   .panel { z-index: 10; position: fixed; background: rgba(0, 0, 0, .62); color: #fff; border-radius: 8px; font-size: 14px; line-height: 1.6; padding: 10px 14px; }
   #hud { left: 12px; top: 12px; min-width: 230px; }
   #hud b { color: #ffd54f; }
   #status { margin-top: 6px; font-size: 16px; min-height: 22px; }
-  #help { right: 12px; bottom: 12px; font-size: 13px; }
+  #help { right: 12px; top: 335px; font-size: 13px; }
 </style>
 
 <style id="drivingsim-ui-v3-css">
@@ -44,7 +45,7 @@
     overflow:hidden;background:rgba(5,12,18,.88);color:#eaf1f5;border:1px solid #627583;
     border-radius:8px;box-shadow:0 4px 18px #0009;font:12px system-ui}
   #dsDashboard .ds-content{padding:7px 9px}
-  #dsTach{position:fixed;left:12px;top:200px;width:150px;padding:0}
+  #dsTach{position:fixed;left:12px;top:225px;width:150px;padding:0}
   #dsTach .ds-content{padding:4px}
   #dsTach canvas{display:block;width:100%;height:auto;aspect-ratio:1/1;border-radius:4px;background:#202a31}
   #dsDashCanvas{display:block;width:100%;height:auto}
@@ -61,10 +62,19 @@
     #dsDock{top:4px;max-width:98vw}
     #dsDashboard{width:220px;right:5px;bottom:5px}
     .ds-side-mirror{min-width:110px;width: min(43vw, 190px);padding:3px}
-    #dsTach{width:110px;top:160px}
+    #dsTach{width:110px;left:auto;right:5px;top:195px}
+    #dsTouchPedals{bottom:190px}
+    #dsTouchActions{flex-wrap:wrap;max-width:172px}
+    #dsGearSelector{bottom:320px}
+  }
+  @media(max-width:700px) and (max-height:460px){
+    #dsTach{left:12px;right:auto;top:46px}
+    #dsTouchPedals{bottom:200px}
+    #dsGearSelector{bottom:186px}
+    #dsTouchActions{bottom:86px}
   }
   /* тач-управление: педали справа и кнопки фич слева (видны на тачскрин-устройствах) */
-  #dsTouchPedals{position:fixed;right:14px;bottom:200px;z-index:10001;display:none;flex-direction:column;gap:12px;pointer-events:none}
+  #dsTouchPedals{position:fixed;right:14px;bottom:235px;z-index:10001;display:none;flex-direction:column;gap:12px;pointer-events:none}
   #dsTouchActions{position:fixed;left:14px;bottom:218px;z-index:10001;display:none;gap:8px;pointer-events:none}
   #dsGearSelector{position:fixed;left:14px;bottom:270px;z-index:10001;display:none;gap:6px;pointer-events:none}
   body.ds-touch #dsTouchPedals{display:flex}
@@ -121,13 +131,13 @@
   <canvas id="mirrorCanvas" width="512" height="128" style="display: block; width: 100%; height: auto; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.5);"></canvas>
 </div>
 
-<div id="osmPanel" class="panel" style="right: 12px; top: 175px; width: 260px;">
+<div id="osmPanel" class="panel" style="right: 12px; top: 215px; width: 260px;">
   Город из OpenStreetMap (JSON):<br>
   <input id="osmFile" type="file" accept=".json,application/json" style="width: 240px; margin-top: 4px;"><br>
   <span id="osmStatus">не загружен</span>
 </div>
 
-<div id="help" class="panel">
+<div id="help" class="panel ds-collapsed">
   W / S — газ / тормоз<br>
   ЛКМ (тянуть) — руль; A / D — руль с клавиатуры<br>
   R — задний, N — нейтраль, F — авто D (1–5)<br>
@@ -997,6 +1007,8 @@ canvas.addEventListener('wheel', e => {
   view.r = clamp(view.r * (1 + e.deltaY * 0.001), 5, 50);
 }, { passive: false });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
+// долгое нажатие/правый клик не должны вызывать системное меню нигде в тренажёре
+document.addEventListener('contextmenu', e => e.preventDefault());
 // средняя кнопка не должна запускать автопрокрутку браузера и не влияет на педали
 canvas.addEventListener('mousedown', e => { if (e.button === 1) e.preventDefault(); });
 canvas.addEventListener('auxclick', e => e.preventDefault());
@@ -1692,7 +1704,7 @@ if (osmFileInput) {
   dock.append(dockHead,dockContent);
   document.body.appendChild(dock);
 
-  const storageKey = 'drivingsim.ui.v3.layout';
+  const storageKey = 'drivingsim.ui.v4.layout';
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(storageKey) || '{}') || {}; } catch (_) {}
   const persist = () => {
@@ -1812,6 +1824,11 @@ if (osmFileInput) {
   }
 
   specs.forEach(([id,label])=>makeWindow($(id),label));
+  const helpWin=$('help');
+  if(helpWin && helpWin.classList.contains('ds-collapsed')){
+    const mb=helpWin.querySelector('.ds-titlebar button');
+    if(mb) mb.textContent='+';
+  }
 
   // Панель приборов: отображает только параметры, реально присутствующие в модели.
   const dashboard=document.createElement('section');
@@ -2433,6 +2450,17 @@ cam.updateMatrixWorld(true);
   if ((window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
       'ontouchstart' in window || (navigator.maxTouchPoints || 0) > 0) enable();
   else window.addEventListener('touchstart', enable, { once: true, passive: true });
+
+  if (innerWidth <= 700 && innerHeight <= 460) {
+    ['hud','osmPanel','sensPanel','help'].forEach(id => {
+      const n = document.getElementById(id);
+      if (n && n.classList.contains('ds-window')) {
+        n.classList.add('ds-collapsed');
+        const mb = n.querySelector('.ds-titlebar button');
+        if (mb) mb.textContent = '+';
+      }
+    });
+  }
 
   const mkBtn = (cls, text, title) => {
     const b = document.createElement('button');
