@@ -1824,11 +1824,6 @@ if (osmFileInput) {
   }
 
   specs.forEach(([id,label])=>makeWindow($(id),label));
-  const helpWin=$('help');
-  if(helpWin && helpWin.classList.contains('ds-collapsed')){
-    const mb=helpWin.querySelector('.ds-titlebar button');
-    if(mb) mb.textContent='+';
-  }
 
   // Панель приборов: отображает только параметры, реально присутствующие в модели.
   const dashboard=document.createElement('section');
@@ -1847,6 +1842,15 @@ if (osmFileInput) {
   tach.innerHTML='<canvas id="dsTachCanvas" width="200" height="200"></canvas>';
   document.body.appendChild(tach);
   makeWindow(tach,'ТАХОМЕТР');
+
+  // По умолчанию все окна HUD свёрнуты в заголовки — пока у окна нет сохранённого состояния
+  document.querySelectorAll('.ds-window').forEach(n => {
+    if (!saved[n.id]) {
+      n.classList.add('ds-collapsed');
+      const mb = n.querySelector('.ds-titlebar button');
+      if (mb) mb.textContent = '+';
+    }
+  });
   const tachCtx=tach.querySelector('canvas').getContext('2d');
   let tachKey='';
   function drawTach(){
