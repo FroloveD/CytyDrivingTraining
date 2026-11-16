@@ -122,6 +122,8 @@
   <button type="button" data-exam="0" style="display:block;width:100%;margin:3px 0;padding:5px;cursor:pointer">▶ Маршрут №1 — круг с остановкой</button>
   <button type="button" data-exam="1" style="display:block;width:100%;margin:3px 0;padding:5px;cursor:pointer">▶ Маршрут №2 — короткий</button>
   <button type="button" id="examStop" style="display:block;width:100%;margin:3px 0;padding:5px;cursor:pointer">■ Завершить маршрут</button>
+  <button type="button" id="examLoad" style="display:block;width:100%;margin:3px 0;padding:5px;cursor:pointer">📂 Загрузить маршруты (JSON)</button>
+  <input type="file" id="examFile" accept=".json,application/json" style="display:none">
 </div>
 
 <div id="sensPanel" class="panel" style="right: 12px; top: 12px;">
@@ -1000,24 +1002,29 @@ const exam = { active: false, done: false, ri: -1, idx: 0, holdT: 0, score: 0, d
 const examGroup = new THREE.Group();
 scene.add(examGroup);
 const examMarkers = [];
-EXAM_ROUTES.forEach((route, ri) => {
-  route.pts.forEach((pt, pi) => {
-    const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(pt.r - 0.4, 0.15, 8, 40),
-      new THREE.MeshBasicMaterial({ color: 0x9aa8b2, transparent: true, opacity: 0.25 })
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.set(pt.x, 0.05, pt.z);
-    const beam = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.3, 0.3, 5, 10),
-      new THREE.MeshBasicMaterial({ color: 0x9aa8b2, transparent: true, opacity: 0.12 })
-    );
-    beam.position.set(pt.x, 2.5, pt.z);
-    ring.visible = beam.visible = false;
-    examGroup.add(ring, beam);
-    examMarkers.push({ ring, beam, ri, pi });
+function rebuildExamMarkers() {
+  for (const m of examMarkers) { examGroup.remove(m.ring); examGroup.remove(m.beam); }
+  examMarkers.length = 0;
+  EXAM_ROUTES.forEach((route, ri) => {
+    route.pts.forEach((pt, pi) => {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(pt.r - 0.4, 0.15, 8, 40),
+        new THREE.MeshBasicMaterial({ color: 0x9aa8b2, transparent: true, opacity: 0.25 })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(pt.x, 0.05, pt.z);
+      const beam = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.3, 0.3, 5, 10),
+        new THREE.MeshBasicMaterial({ color: 0x9aa8b2, transparent: true, opacity: 0.12 })
+      );
+      beam.position.set(pt.x, 2.5, pt.z);
+      ring.visible = beam.visible = false;
+      examGroup.add(ring, beam);
+      examMarkers.push({ ring, beam, ri, pi });
+    });
   });
-});
+}
+rebuildExamMarkers();
 
 function examRefreshMarkers() {
   for (const m of examMarkers) {
@@ -1065,8 +1072,55 @@ function examUpdate(dt) {
     } else examAdvance();
   } else exam.holdT = 0;
 }
+function rebuildExamPanel() {
+  const panel = document.getElementById('examPanel');
+  panel.querySelectorAll('button[data-exam]').forEach(b => b.remove());
+  const anchor = document.getElementById('examStop');
+  EXAM_ROUTES.forEach((route, ri) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.exam = String(ri);
+    b.style.cssText = 'display:block;width:100%;margin:3px 0;padding:5px;cursor:pointer';
+    b.textContent = '▶ ' + route.name;
+    b.addEventListener('click', () => startExam(ri));
+    panel.insertBefore(b, anchor);
+  });
+}
 document.querySelectorAll('#examPanel button[data-exam]').forEach(b => b.addEventListener('click', () => startExam(+b.dataset.exam)));
 document.getElementById('examStop').addEventListener('click', stopExam);
+document.getElementById('examLoad').addEventListener('click', () => document.getElementById('examFile').click());
+document.getElementById('examFile').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!Array.isArray(data) || !data.length) throw new Error('нужен непустой массив маршрутов');
+      const clean = data.map((r, i) => {
+        if (!r || !Array.isArray(r.pts) || !r.pts.length) throw new Error('маршрут ' + (i + 1) + ': нет точек');
+        return {
+          name: String(r.name || ('Маршрут №' + (i + 1))),
+          pts: r.pts.map((p, j) => {
+            const x = +p.x, z = +p.z;
+            if (!isFinite(x) || !isFinite(z)) throw new Error('маршрут ' + (i + 1) + ', точка ' + (j + 1) + ': координаты не числа');
+            return { x, z, r: Math.min(30, Math.max(1, +p.r || 5)), name: String(p.name || ('Точка ' + (j + 1))), stop: !!p.stop };
+          })
+        };
+      });
+      EXAM_ROUTES.length = 0;
+      for (const r of clean) EXAM_ROUTES.push(r);
+      rebuildExamMarkers();
+      rebuildExamPanel();
+      stopExam();
+      alert('Загружено маршрутов: ' + clean.length);
+    } catch (err) {
+      alert('Ошибка загрузки маршрутов: ' + err.message);
+    }
+  };
+  reader.readAsText(f);
+  e.target.value = '';
+});
 
 // наш автомобиль
 const car = makeCar(0x2d6cdf, DIM.ceed, { sign: true, driver: true });
